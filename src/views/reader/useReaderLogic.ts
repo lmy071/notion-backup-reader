@@ -1,0 +1,62 @@
+import { ref, watch, computed } from 'vue'
+import { storage } from '@/services/storage'
+import type { NotionPage } from '@/types/notion'
+
+export interface HeadingItem {
+  id: string
+  level: number
+  text: string
+}
+
+export function useReaderLogic(pageId: string) {
+  const page = ref<NotionPage | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+  const sidebarWidth = ref(280)
+
+  async function loadPage() {
+    loading.value = true
+    error.value = null
+    try {
+      const result = await storage.getPage(pageId)
+      if (result?.page) {
+        page.value = result.page as unknown as NotionPage
+      } else {
+        error.value = '页面未找到'
+      }
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : '加载失败'
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const headings = computed<HeadingItem[]>(() => {
+    if (!page.value) return []
+    return page.value.blocks
+      .filter(b => b.type.startsWith('heading_'))
+      .map(b => {
+        const headingContent = (b as Record<string, unknown>)[b.type]
+        let text = ''
+        if (typeof headingContent === 'object' && headingContent !== null) {
+          const hc = headingContent as Record<string, unknown>
+          if (Array.isArray(hc.rich_text)) {
+            text = hc.rich_text
+              .map((rt: Record<string, unknown>) => String(rt.plain_text ?? ''))
+              .join('')
+          }
+        } else if (typeof headingContent === 'string') {
+          text = headingContent
+        }
+        return {
+          id: b.id,
+          level: parseInt(b.type.replace('heading_', '')),
+          text,
+        }
+      })
+  })
+
+  watch(() => pageId, loadPage, { immediate: true })
+
+  return { page, loading, error, headings, sidebarWidth, loadPage }
+}
