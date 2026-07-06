@@ -1,13 +1,16 @@
 import { ref, computed } from 'vue'
-import { usePageHistory, type PageHistoryItem } from '@/composables/usePageHistory'
-// import { sync } from '@/services/sync' — import when sync service is ready
+import { usePageHistory } from '@/composables/usePageHistory'
+import { sync } from '@/services/sync'
+import type { BatchSyncProgress } from '@/services/sync'
 
 export function useSyncLogic() {
   const inputText = ref('')
   const selectedIds = ref<Set<string>>(new Set())
   const isSyncing = ref(false)
+  const isPaused = ref(false)
   const overallProgress = ref(0)
   const logMessages = ref<string[]>([])
+  const taskMap = ref<Map<string, { title: string; status: string; progress: number }>>(new Map())
   const { items: historyList, addOrUpdate } = usePageHistory()
 
   const parsedIds = computed(() => {
@@ -15,6 +18,10 @@ export function useSyncLogic() {
       .split(/[\n,]+/)
       .map(s => s.trim())
       .filter(s => s.length > 0)
+  })
+
+  const allTargetIds = computed(() => {
+    return [...new Set([...selectedIds.value, ...parsedIds.value])]
   })
 
   function toggleSelectId(id: string) {
@@ -36,47 +43,83 @@ export function useSyncLogic() {
     logMessages.value.push(`[${new Date().toLocaleTimeString()}] ${msg}`)
   }
 
-  function removeHistory(id: string) {
-    // delegating to usePageHistory later
-  }
-
   function parseInputIds(): string[] {
     return parsedIds.value
   }
 
+  function handleProgress(progress: BatchSyncProgress) {
+    overallProgress.value = progress.overall
+    const map = new Map<string, { title: string; status: string; progress: number }>()
+    for (const [id, task] of progress.tasks) {
+      map.set(id, {
+        title: task.title,
+        status: task.status,
+        progress: task.progress,
+      })
+      if (task.status === 'done') {
+        addLog(`✅ ${task.title} — 同步完成`)
+      } else if (task.status === 'error') {
+        addLog(`❌ ${task.title} — ${task.error || '同步失败'}`)
+      }
+    }
+    taskMap.value = map
+  }
+
   async function startBatchSync() {
-    const allIds = [...new Set([...selectedIds.value, ...parsedIds.value])]
+    const allIds = allTargetIds.value
     if (allIds.length === 0) return
 
     isSyncing.value = true
+    isPaused.value = false
     overallProgress.value = 0
     logMessages.value = []
+    taskMap.value = new Map()
 
     addLog(`开始批量同步 ${allIds.length} 个页面...`)
-    // TODO: integrate sync.syncPages(allIds) with concurrency control
-    // For now: placeholder
-    addLog('同步服务尚未连接，请先完成 Phase 2-3')
 
-    isSyncing.value = false
+    try {
+      await sync.syncPages(allIds, handleProgress)
+      addLog('全部同步任务完成')
+    } catch (e) {
+      addLog(`同步中断: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      isSyncing.value = false
+      isPaused.value = false
+    }
   }
 
-  function pauseSync() { /* placeholder */ }
-  function resumeSync() { /* placeholder */ }
-  function cancelSync() { isSyncing.value = false }
+  function pauseSync() {
+    isPaused.value = true
+    addLog('⏸ 同步已暂停')
+  }
+
+  function resumeSync() {
+    isPaused.value = false
+    addLog('▶ 同步已恢复')
+  }
+
+  function cancelSync() {
+    sync.cancel()
+    isSyncing.value = false
+    isPaused.value = false
+    addLog('⏹ 同步已取消')
+  }
 
   return {
     inputText,
     selectedIds,
     historyList,
     isSyncing,
+    isPaused,
     overallProgress,
     logMessages,
+    taskMap,
+    allTargetIds,
     parsedIds,
     toggleSelectId,
     selectAllHistory,
     clearSelection,
     addLog,
-    removeHistory,
     parseInputIds,
     startBatchSync,
     pauseSync,

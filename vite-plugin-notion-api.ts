@@ -280,15 +280,141 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse({ ok: true })
   }
 
-  // ── MCP proxy (placeholder — mcporter CLI 尚未集成)
-  if (method === 'POST' && path.startsWith('/api/notion/')) {
-    return jsonResponse(
-      { error: 'MCP proxy not yet implemented. Configure mcporter CLI first.' },
-      501,
-    )
+  // ── Notion API proxy — 浏览器不直连 api.notion.com（CORS），由中间件转发
+  if (path.startsWith('/api/notion/')) {
+    return handleNotionProxy(req)
   }
 
   return new Response('Not Found', { status: 404 })
+}
+
+// ── Notion API proxy ───────────────────────────────────────────
+
+const NOTION_API_BASE = 'https://api.notion.com/v1'
+const NOTION_VERSION = '2022-06-28'
+
+async function handleNotionProxy(req: Request): Promise<Response> {
+  const url = new URL(req.url)
+  const method = req.method
+  const path = url.pathname
+
+  // Extract the Notion API token from the request header
+  const notionToken = req.headers.get('X-Notion-Token')
+  if (!notionToken) {
+    return errorResponse('Missing X-Notion-Token header (set apiKey in config)', 401)
+  }
+
+  const commonHeaders: Record<string, string> = {
+    'Authorization': `Bearer ${notionToken}`,
+    'Notion-Version': NOTION_VERSION,
+    'Content-Type': 'application/json',
+  }
+
+  try {
+    // ── POST /api/notion/test-connection
+    if (method === 'POST' && path === '/api/notion/test-connection') {
+      // Use the user endpoint as a lightweight connectivity test
+      const res = await fetch(`${NOTION_API_BASE}/users/me`, { headers: commonHeaders })
+      if (res.ok) {
+        const data = await res.json() as Record<string, unknown>
+        return jsonResponse({
+          ok: true,
+          message: `Connected as ${(data as Record<string, unknown>).name || (data as Record<string, unknown>).type || 'bot'}`,
+        })
+      }
+      const err = await res.text()
+      return jsonResponse({ ok: false, message: `Notion API error: ${res.status} ${err}` }, 502)
+    }
+
+    // ── POST /api/notion/fetch-page
+    if (method === 'POST' && path === '/api/notion/fetch-page') {
+      const body = await req.json() as { pageId: string }
+      const { pageId } = body
+
+      // Fetch page metadata + blocks in parallel
+      const [pageRes, blocksRes] = await Promise.all([
+        fetch(`${NOTION_API_BASE}/pages/${pageId}`, { headers: commonHeaders }),
+        fetchBlocks(pageId, commonHeaders),
+      ])
+
+      if (!pageRes.ok) {
+        const err = await pageRes.text()
+        return jsonResponse({ error: `Failed to fetch page: ${pageRes.status} ${err}` }, 502)
+      }
+
+      const page = await pageRes.json() as Record<string, unknown>
+      return jsonResponse({ page, blocks: blocksRes })
+    }
+
+    // ── POST /api/notion/fetch-block-children
+    if (method === 'POST' && path === '/api/notion/fetch-block-children') {
+      const body = await req.json() as { blockId: string; startCursor?: string }
+      const { blockId, startCursor } = body
+
+      let queryUrl = `${NOTION_API_BASE}/blocks/${blockId}/children?page_size=100`
+      if (startCursor) queryUrl += `&start_cursor=${startCursor}`
+
+      const res = await fetch(queryUrl, { headers: commonHeaders })
+      if (!res.ok) {
+        const err = await res.text()
+        return jsonResponse({ error: `Failed to fetch blocks: ${res.status} ${err}` }, 502)
+      }
+      const data = await res.json() as Record<string, unknown>
+      return jsonResponse(data)
+    }
+
+    // ── POST /api/notion/fetch-database
+    if (method === 'POST' && path === '/api/notion/fetch-database') {
+      const body = await req.json() as { databaseId: string }
+      const { databaseId } = body
+
+      const res = await fetch(
+        `${NOTION_API_BASE}/databases/${databaseId}/query`,
+        { method: 'POST', headers: commonHeaders, body: JSON.stringify({ page_size: 100 }) },
+      )
+      if (!res.ok) {
+        const err = await res.text()
+        return jsonResponse({ error: `Failed to query database: ${res.status} ${err}` }, 502)
+      }
+      const data = await res.json() as Record<string, unknown>
+      return jsonResponse({ database: data, results: (data as { results?: unknown }).results || [] })
+    }
+
+    return errorResponse(`Unknown Notion proxy endpoint: ${path}`, 404)
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e)
+    return errorResponse(`Notion proxy error: ${errMsg}`)
+  }
+}
+
+/** Paginated fetch of all block children. */
+async function fetchBlocks(
+  blockId: string,
+  headers: Record<string, string>,
+): Promise<unknown[]> {
+  const allBlocks: unknown[] = []
+  let cursor: string | undefined
+  let hasMore = true
+
+  while (hasMore) {
+    let url = `${NOTION_API_BASE}/blocks/${blockId}/children?page_size=100`
+    if (cursor) url += `&start_cursor=${cursor}`
+
+    const res = await fetch(url, { headers })
+    if (!res.ok) {
+      const err = await res.text()
+      throw new Error(`Failed to fetch blocks: ${res.status} ${err}`)
+    }
+
+    const data = await res.json() as Record<string, unknown>
+    const results = (data.results || []) as unknown[]
+    allBlocks.push(...results)
+
+    hasMore = Boolean(data.has_more)
+    cursor = data.next_cursor as string | undefined
+  }
+
+  return allBlocks
 }
 
 async function rmRecursive(dirPath: string): Promise<void> {

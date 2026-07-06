@@ -1,5 +1,5 @@
 import type { NotionBlock } from '@/types/notion'
-import { mcp } from './mcp'
+import { createMcpClient } from './mcp'
 import { storage } from './storage'
 import { logger } from './logger'
 import { createConcurrencyController } from './concurrency'
@@ -33,14 +33,20 @@ const visitedPages = new Set<string>()
 
 // ── Helpers ────────────────────────────────────────────────────────
 
+// Will be set when sync starts (holds the apiKey)
+let mcpClient: ReturnType<typeof createMcpClient> | null = null
+
 async function fetchAllBlocks(blockId: string): Promise<NotionBlock[]> {
+  const client = mcpClient!
   const allBlocks: NotionBlock[] = []
+  let cursor: string | undefined
   let hasMore = true
 
   while (hasMore && !cancelled) {
-    const response = await mcp.fetchBlockChildren(blockId)
+    const response = await client.fetchBlockChildren(blockId, cursor)
     allBlocks.push(...response.results)
     hasMore = response.has_more
+    cursor = response.next_cursor ?? undefined
   }
 
   return allBlocks
@@ -154,7 +160,8 @@ async function syncChildDatabasePages(databaseId: string): Promise<void> {
   visitedPages.add(databaseId)
 
   try {
-    const dbResponse = await mcp.fetchDatabase(databaseId)
+    const client = mcpClient!
+    const dbResponse = await client.fetchDatabase(databaseId)
     const results = (dbResponse.results || []) as Record<string, unknown>[]
 
     if (cancelled || results.length === 0) return
@@ -227,7 +234,8 @@ async function syncOnePage(
     // ── Fetch page ──
     updateTask(pageId, { status: 'fetching', progress: 10 })
 
-    const pageResponse = await mcp.fetchPage(pageId)
+    const client = mcpClient!
+    const pageResponse = await client.fetchPage(pageId)
     const rawPage: RawPage = {
       id: pageResponse.page?.id as string || pageId,
       properties: (pageResponse.page?.properties as Record<string, unknown>) || {},
@@ -331,6 +339,7 @@ export const sync = {
 
     const { useConfigStore } = await import('@/stores/config')
     const { config } = useConfigStore()
+    mcpClient = createMcpClient(config.apiKey)
     currentConcurrency = createConcurrencyController({
       maxConcurrency: config.syncConcurrency,
       minInterval: config.requestDelay,
@@ -366,6 +375,7 @@ export const sync = {
 
     const { useConfigStore } = await import('@/stores/config')
     const { config } = useConfigStore()
+    mcpClient = createMcpClient(config.apiKey)
     currentConcurrency = createConcurrencyController({
       maxConcurrency: config.syncConcurrency,
       minInterval: config.requestDelay,

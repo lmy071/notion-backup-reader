@@ -7,8 +7,11 @@ const {
   syncConcurrency,
   requestDelay,
   saved,
+  testing,
+  testResult,
   save,
   reset,
+  testConnection,
 } = useConfigLogic()
 </script>
 
@@ -74,7 +77,23 @@ const {
       <div class="flex items-center gap-3">
         <button class="btn-primary" @click="save">保存配置</button>
         <button class="btn-secondary" @click="reset">重置</button>
+        <button
+          class="btn-secondary"
+          :disabled="testing"
+          @click="testConnection"
+        >
+          {{ testing ? '测试中...' : '测试连接' }}
+        </button>
         <span v-if="saved" class="text-green-600 text-sm">✅ 已保存</span>
+      </div>
+
+      <!-- 测试结果 -->
+      <div
+        v-if="testResult"
+        class="mt-4 p-3 rounded text-sm"
+        :class="testResult.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'"
+      >
+        {{ testResult.message }}
       </div>
     </div>
   </div>
