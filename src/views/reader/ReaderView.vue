@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
 import { useReaderLogic } from './useReaderLogic'
 import ResizablePanel from '@/components/common/ResizablePanel.vue'
 import TocTree from '@/components/common/TocTree.vue'
@@ -8,6 +9,10 @@ const props = defineProps<{
   pageId: string
 }>()
 
+const route = useRoute()
+const rootPageId = (route.query.root as string) || props.pageId
+const date = (route.query.date as string) || ''
+
 const {
   page,
   loading,
@@ -15,7 +20,7 @@ const {
   headings,
   sidebarWidth,
   loadPage,
-} = useReaderLogic(props.pageId)
+} = useReaderLogic(rootPageId, date, props.pageId)
 </script>
 
 <template>

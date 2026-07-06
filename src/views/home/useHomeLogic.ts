@@ -1,16 +1,16 @@
 import { ref, onMounted } from 'vue'
-import { storage } from '@/services/storage'
+import { storage, type BatchSummary } from '@/services/storage'
 import type { PageSummary } from '@/types/storage'
 
 export function useHomeLogic() {
-  const pages = ref<PageSummary[]>([])
+  const batches = ref<BatchSummary[]>([])
   const loading = ref(false)
 
   async function loadPages() {
     loading.value = true
     try {
       const index = await storage.getIndex()
-      pages.value = index.pages
+      batches.value = index.batches
     } catch (e) {
       console.error('Failed to load pages:', e)
     } finally {
@@ -20,5 +20,5 @@ export function useHomeLogic() {
 
   onMounted(loadPages)
 
-  return { pages, loading, loadPages }
+  return { batches, loading, loadPages }
 }

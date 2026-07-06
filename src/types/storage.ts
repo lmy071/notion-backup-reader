@@ -6,6 +6,7 @@ export interface GlobalIndex {
 
 export interface PageSummary {
   pageId: string
+  rootPageId: string
   title: string
   icon: string | null
   coverUrl: string | null
@@ -16,6 +17,7 @@ export interface PageSummary {
 
 export interface SyncMeta {
   pageId: string
+  rootPageId: string
   title: string
   syncedAt: string
   blockCount: number

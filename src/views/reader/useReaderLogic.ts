@@ -1,4 +1,4 @@
-import { ref, watch, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { storage } from '@/services/storage'
 import type { NotionPage } from '@/types/notion'
 
@@ -8,7 +8,7 @@ export interface HeadingItem {
   text: string
 }
 
-export function useReaderLogic(pageId: string) {
+export function useReaderLogic(rootPageId: string, date: string, pageId: string) {
   const page = ref<NotionPage | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -18,7 +18,7 @@ export function useReaderLogic(pageId: string) {
     loading.value = true
     error.value = null
     try {
-      const result = await storage.getPage(pageId)
+      const result = await storage.getPage(rootPageId, date, pageId)
       if (result?.page) {
         page.value = result.page as unknown as NotionPage
       } else {
@@ -56,7 +56,7 @@ export function useReaderLogic(pageId: string) {
       })
   })
 
-  watch(() => pageId, loadPage, { immediate: true })
+  watch([() => rootPageId, () => date, () => pageId], loadPage, { immediate: true })
 
   return { page, loading, error, headings, sidebarWidth, loadPage }
 }

@@ -116,38 +116,37 @@ async function cleanupLogs(): Promise<void> {
 
 // ── API routes ───────────────────────────────────────────────────
 
+// URL 解析辅助：从 path 提取路由参数
+// GET /api/storage/page/:rootPageId/:date/:pageId
+// GET /api/storage/batch-index/:rootPageId/:date
+// GET /api/storage/versions/:rootPageId
+// DELETE /api/storage/cleanup/:rootPageId
+
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const path = url.pathname
   const method = req.method
+  const segments = path.split('/').filter(Boolean)
 
   // ── GET /api/storage/index
   if (method === 'GET' && path === '/api/storage/index') {
-    const indexPath = join(JSON_DIR, 'index.json')
-    const index = await readJsonSafe(indexPath)
-    if (index) return jsonResponse(index)
-    return jsonResponse({ version: 1, updatedAt: '', pages: [] })
+    return jsonResponse(await buildGlobalIndex())
   }
 
-  // ── GET /api/storage/page/:pageId
+  // ── GET /api/storage/page/:rootPageId/:date/:pageId
   if (method === 'GET' && path.startsWith('/api/storage/page/')) {
-    const pageId = path.split('/api/storage/page/')[1].split('?')[0]
-    const dateParam = url.searchParams.get('date')
+    // segments = ['api','storage','page','rootPageId','date','pageId']
+    if (segments.length < 6) return errorResponse('Invalid path', 400)
+    const rootPageId = segments[3]
+    const date = segments[4]
+    const pageId = segments.slice(5).join('/')
 
-    const pageDir = join(JSON_DIR, pageId)
-    if (!existsSync(pageDir)) return jsonResponse(null, 404)
-
-    const dates = dateParam ? [dateParam] : (await listDirs(pageDir)).sort().reverse()
-    if (dates.length === 0) return jsonResponse(null, 404)
-
-    const latestDate = dates[0]
-    const dateDir = join(pageDir, latestDate)
-
-    const page = await readJsonSafe(join(dateDir, 'page.json'))
+    const pageDir = join(JSON_DIR, rootPageId, date, pageId)
+    const page = await readJsonSafe(join(pageDir, 'page.json'))
     if (!page) return jsonResponse(null, 404)
 
     const children: Record<string, unknown> = {}
-    const childrenDir = join(dateDir, 'children')
+    const childrenDir = join(pageDir, 'children')
     if (existsSync(childrenDir)) {
       const childFiles = await readdir(childrenDir)
       for (const childFile of childFiles) {
@@ -160,100 +159,108 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse({ page, children, databases: {} })
   }
 
+  // ── GET /api/storage/batch-index/:rootPageId/:date
+  if (method === 'GET' && path.startsWith('/api/storage/batch-index/')) {
+    if (segments.length < 6) return errorResponse('Invalid path', 400)
+    const rootPageId = segments[3]
+    const date = segments[4]
+    const indexFile = join(JSON_DIR, rootPageId, date, 'index.json')
+    const index = await readJsonSafe(indexFile)
+    if (index) return jsonResponse(index)
+    return jsonResponse(null, 404)
+  }
+
   // ── POST /api/storage/save
+  // body: { rootPageId, pages: [{ page, children? }] }
   if (method === 'POST' && path === '/api/storage/save') {
     const body = (await req.json()) as Record<string, unknown>
-    const page = body.page as Record<string, unknown> | undefined
-    const pageId = page?.pageId as string | undefined
+    const rootPageId = body.rootPageId as string
+    const pages = body.pages as Array<Record<string, unknown>> | undefined
 
-    if (!pageId) return errorResponse('Missing pageId', 400)
+    if (!rootPageId) return errorResponse('Missing rootPageId', 400)
+    if (!pages || pages.length === 0) return errorResponse('Missing pages', 400)
 
     const today = new Date().toISOString().slice(0, 10)
-    const dateDir = join(JSON_DIR, pageId, today)
+    const batchDir = join(JSON_DIR, rootPageId, today)
+    const batchEntries: unknown[] = []
 
-    // Save page.json
-    await writeJson(join(dateDir, 'page.json'), page)
+    for (const entry of pages) {
+      const page = entry.page as Record<string, unknown>
+      const pageId = page?.pageId as string | undefined
+      if (!pageId) continue
 
-    // Save children
-    const children = body.children as Record<string, unknown> | undefined
-    if (children) {
-      const childrenDir = join(dateDir, 'children')
-      for (const [childId, childData] of Object.entries(children)) {
-        await writeJson(join(childrenDir, `${childId}.json`), childData)
+      const pageDir = join(batchDir, pageId)
+
+      // Save page.json
+      await writeJson(join(pageDir, 'page.json'), page)
+
+      // Save children
+      const children = entry.children as Record<string, unknown> | undefined
+      const childrenEntries = children ? Object.keys(children) : []
+      if (children && childrenEntries.length > 0) {
+        const childrenDir = join(pageDir, 'children')
+        for (const [childId, childData] of Object.entries(children)) {
+          await writeJson(join(childrenDir, `${childId}.json`), childData)
+        }
       }
+
+      // Save meta.json
+      const blocks = (page as { blocks?: unknown[] })?.blocks
+      const meta: Record<string, unknown> = {
+        pageId,
+        rootPageId,
+        title: (page as { title?: string }).title ?? '',
+        syncedAt: new Date().toISOString(),
+        blockCount: Array.isArray(blocks) ? blocks.length : 0,
+        childPages: childrenEntries,
+        databases: [],
+        errors: [],
+      }
+      await writeJson(join(pageDir, 'meta.json'), meta)
+
+      batchEntries.push({
+        pageId,
+        rootPageId,
+        title: (page as { title?: string }).title ?? '',
+        icon: (page as { icon?: unknown }).icon ?? null,
+        coverUrl: (page as { cover?: Record<string, unknown> })?.cover?.url ?? null,
+        lastSync: new Date().toISOString(),
+        childCount: childrenEntries.length,
+        blockCount: Array.isArray(blocks) ? blocks.length : 0,
+      })
     }
 
-    // Save meta.json
-    const blocks = (page as { blocks?: unknown[] })?.blocks
-    const childrenEntries = children ? Object.keys(children) : []
-    const meta = {
-      pageId,
-      title: (page as { title?: string }).title ?? '',
+    const batchIndex = {
+      version: 1,
+      rootPageId,
+      date: today,
       syncedAt: new Date().toISOString(),
-      blockCount: Array.isArray(blocks) ? blocks.length : 0,
-      childPages: childrenEntries,
-      databases: [],
-      errors: [],
+      pages: batchEntries,
     }
-    await writeJson(join(dateDir, 'meta.json'), meta)
+    await writeJson(join(batchDir, 'index.json'), batchIndex)
 
-    // Update index.json
-    const indexPath = join(JSON_DIR, 'index.json')
-    let index = (await readJsonSafe(indexPath)) as Record<string, unknown> | null
-    if (!index || typeof index.pages !== 'object') {
-      index = { version: 1, updatedAt: '', pages: [] }
-    }
-
-    const pages = (index.pages as unknown[]) || []
-    const existingIdx = pages.findIndex(
-      (p) => (p as Record<string, unknown>).pageId === pageId,
-    )
-
-    const pageEntry = {
-      pageId,
-      title: (page as { title?: string }).title ?? '',
-      icon: (page as { icon?: unknown }).icon ?? null,
-      coverUrl: (page as { cover?: Record<string, unknown> })?.cover?.url ?? null,
-      lastSync: new Date().toISOString(),
-      childCount: childrenEntries.length,
-      blockCount: Array.isArray(blocks) ? blocks.length : 0,
-    }
-
-    if (existingIdx >= 0) {
-      pages[existingIdx] = pageEntry
-    } else {
-      pages.push(pageEntry)
-    }
-
-    await writeJson(indexPath, {
-      version: (index.version as number) ?? 1,
-      updatedAt: new Date().toISOString(),
-      pages,
-    })
-
-    // Cleanup old versions
-    const allDates = (await listDirs(join(JSON_DIR, pageId))).sort().reverse()
+    // Cleanup old versions for this root
+    const allDates = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
     for (const oldDate of allDates.slice(MAX_VERSIONS)) {
-      const oldDir = join(JSON_DIR, pageId, oldDate)
-      await rmRecursive(oldDir)
+      await rmRecursive(join(JSON_DIR, rootPageId, oldDate))
     }
 
     return jsonResponse({ ok: true })
   }
 
-  // ── GET /api/storage/versions/:pageId
+  // ── GET /api/storage/versions/:rootPageId
   if (method === 'GET' && path.startsWith('/api/storage/versions/')) {
-    const pageId = path.split('/api/storage/versions/')[1]
-    const versions = (await listDirs(join(JSON_DIR, pageId))).sort().reverse()
+    const rootPageId = segments[3]
+    const versions = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
     return jsonResponse(versions)
   }
 
-  // ── DELETE /api/storage/cleanup/:pageId
+  // ── DELETE /api/storage/cleanup/:rootPageId
   if (method === 'DELETE' && path.startsWith('/api/storage/cleanup/')) {
-    const pageId = path.split('/api/storage/cleanup/')[1]
-    const allDates = (await listDirs(join(JSON_DIR, pageId))).sort().reverse()
+    const rootPageId = segments[3]
+    const allDates = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
     for (const oldDate of allDates.slice(MAX_VERSIONS)) {
-      await rmRecursive(join(JSON_DIR, pageId, oldDate))
+      await rmRecursive(join(JSON_DIR, rootPageId, oldDate))
     }
     return jsonResponse({ ok: true })
   }
@@ -292,6 +299,42 @@ async function handleRequest(req: Request): Promise<Response> {
 
 const NOTION_API_BASE = 'https://api.notion.com/v1'
 const NOTION_VERSION = '2022-06-28'
+
+/**
+ * 扫描 json/ 目录构建全局索引。
+ * 结构：json/{rootPageId}/{date}/index.json → 聚合所有批次
+ */
+async function buildGlobalIndex(): Promise<Record<string, unknown>> {
+  const batches: unknown[] = []
+  let rootDirs: string[]
+  try {
+    rootDirs = await readdir(JSON_DIR)
+  } catch {
+    return { version: 1, updatedAt: new Date().toISOString(), batches: [] }
+  }
+
+  for (const rootId of rootDirs) {
+    const rootPath = join(JSON_DIR, rootId)
+    let statInfo
+    try { statInfo = await stat(rootPath) } catch { continue }
+    if (!statInfo.isDirectory()) continue
+
+    const dateDirs = (await listDirs(rootPath)).sort().reverse()
+    for (const date of dateDirs) {
+      const indexPath = join(rootPath, date, 'index.json')
+      const idx = await readJsonSafe(indexPath) as Record<string, unknown> | null
+      if (idx) {
+        batches.push({
+          rootPageId: rootId,
+          date,
+          pages: (idx.pages || []),
+        })
+      }
+    }
+  }
+
+  return { version: 1, updatedAt: new Date().toISOString(), batches }
+}
 
 async function handleNotionProxy(req: Request): Promise<Response> {
   const url = new URL(req.url)

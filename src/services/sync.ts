@@ -1,5 +1,5 @@
-import type { NotionBlock } from '@/types/notion'
-import { createMcpClient } from './mcp'
+import type { NotionBlock, NotionPage } from '@/types/notion'
+import { createMcpClient, type FetchPageResponse } from './mcp'
 import { storage } from './storage'
 import { logger } from './logger'
 import { createConcurrencyController } from './concurrency'
@@ -12,13 +12,13 @@ export interface SyncProgress {
   pageId: string
   title: string
   status: 'pending' | 'fetching' | 'parsing' | 'saving' | 'done' | 'error'
-  progress: number // 0-100
+  progress: number
   error?: string
 }
 
 export interface BatchSyncProgress {
   tasks: Map<string, SyncProgress>
-  overall: number // 0-100
+  overall: number
 }
 
 export type SyncCallback = (progress: BatchSyncProgress) => void
@@ -31,26 +31,12 @@ let currentCallback: SyncCallback | null = null
 let currentConcurrency: ReturnType<typeof createConcurrencyController> | null = null
 const visitedPages = new Set<string>()
 
+type McpClient = ReturnType<typeof createMcpClient>
+let mcpClient: McpClient | null = null
+let rootPageId: string | null = null
+let collectedPages: Array<{ page: NotionPage }> = []
+
 // ── Helpers ────────────────────────────────────────────────────────
-
-// Will be set when sync starts (holds the apiKey)
-let mcpClient: ReturnType<typeof createMcpClient> | null = null
-
-async function fetchAllBlocks(blockId: string): Promise<NotionBlock[]> {
-  const client = mcpClient!
-  const allBlocks: NotionBlock[] = []
-  let cursor: string | undefined
-  let hasMore = true
-
-  while (hasMore && !cancelled) {
-    const response = await client.fetchBlockChildren(blockId, cursor)
-    allBlocks.push(...response.results)
-    hasMore = response.has_more
-    cursor = response.next_cursor ?? undefined
-  }
-
-  return allBlocks
-}
 
 function computeOverall(): number {
   if (!currentBatch || currentBatch.tasks.size === 0) return 0
@@ -224,7 +210,6 @@ async function syncOnePage(
 
   const startTime = Date.now()
   let title = initialTitle || pageId
-  let blocks: NotionBlock[] = []
 
   ensureTask(pageId, title)
 
@@ -249,7 +234,6 @@ async function syncOnePage(
     )
 
     const rawBlocks = (pageResponse.blocks || []) as RawBlock[]
-    blocks = rawBlocks as unknown as NotionBlock[]
 
     updateTask(pageId, { title, status: 'fetching', progress: 50 })
 
@@ -258,9 +242,13 @@ async function syncOnePage(
 
     const parsed = parsePage(rawPage, rawBlocks)
 
+    // ── Collect for batch save (instead of saving individually) ──
+    collectedPages.push({ page: parsed })
+
     updateTask(pageId, { progress: 80 })
 
     // ── Detect children ──
+    const blocks = rawBlocks as unknown as NotionBlock[]
     const children = extractChildren(blocks)
 
     if (children.length > 0) {
@@ -272,17 +260,6 @@ async function syncOnePage(
       })
     }
 
-    // ── Save ──
-    updateTask(pageId, { status: 'saving', progress: 85 })
-
-    await storage.saveSyncResult({
-      page: parsed,
-      children: {},
-      databases: {},
-    })
-
-    updateTask(pageId, { progress: 95 })
-
     // ── Log done ──
     const duration = Date.now() - startTime
     logger.info({
@@ -293,10 +270,7 @@ async function syncOnePage(
       duration,
     })
 
-    // ── Update history ──
     updateLocalHistory(pageId, title)
-
-    // ── Mark done ──
     updateTask(pageId, { status: 'done', progress: 100 })
 
     // ── Recursively sync children ──
@@ -334,6 +308,8 @@ export const sync = {
   ): Promise<void> {
     cancelled = false
     visitedPages.clear()
+    collectedPages = []
+    rootPageId = pageId
     currentBatch = { tasks: new Map(), overall: 0 }
     currentCallback = onProgress || null
 
@@ -350,6 +326,10 @@ export const sync = {
 
     try {
       await currentConcurrency.enqueue(() => syncOnePage(pageId))
+      // Batch save all collected pages
+      if (collectedPages.length > 0 && !cancelled) {
+        await storage.saveSyncResult(rootPageId!, collectedPages)
+      }
     } finally {
       currentConcurrency = null
       currentBatch = null
@@ -365,6 +345,8 @@ export const sync = {
 
     cancelled = false
     visitedPages.clear()
+    collectedPages = []
+    rootPageId = pageIds[0]
     currentBatch = { tasks: new Map(), overall: 0 }
     currentCallback = onProgress || null
 
@@ -384,6 +366,10 @@ export const sync = {
     try {
       const tasks = pageIds.map((pageId) => () => syncOnePage(pageId))
       await Promise.all(tasks.map((fn) => currentConcurrency!.enqueue(fn)))
+      // Batch save all collected pages under the first pageId as root
+      if (collectedPages.length > 0 && !cancelled) {
+        await storage.saveSyncResult(rootPageId!, collectedPages)
+      }
     } finally {
       currentConcurrency = null
       currentBatch = null
@@ -394,6 +380,7 @@ export const sync = {
   cancel(): void {
     cancelled = true
     visitedPages.clear()
+    collectedPages = []
     if (currentConcurrency) {
       currentConcurrency.cancel()
       currentConcurrency = null
