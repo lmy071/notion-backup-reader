@@ -5,13 +5,8 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-interface VideoData {
-  file?: { url: string }
-  external?: { url: string }
-}
-
-const video = (props.block as { video: VideoData }).video
-const url = video?.file?.url || video?.external?.url || ''
+// parseBlock 已将 URL 提取到 block.url 顶层
+const url = (props.block as { url?: string }).url ?? ''
 </script>
 
 <template>

@@ -36,18 +36,9 @@ export function useReaderLogic(rootPageId: string, date: string, pageId: string)
     return page.value.blocks
       .filter(b => b.type.startsWith('heading_'))
       .map(b => {
-        const headingContent = (b as Record<string, unknown>)[b.type]
-        let text = ''
-        if (typeof headingContent === 'object' && headingContent !== null) {
-          const hc = headingContent as Record<string, unknown>
-          if (Array.isArray(hc.rich_text)) {
-            text = hc.rich_text
-              .map((rt: Record<string, unknown>) => String(rt.plain_text ?? ''))
-              .join('')
-          }
-        } else if (typeof headingContent === 'string') {
-          text = headingContent
-        }
+        // parseBlock has already flattened rich_text to top level
+        const richText = (b as { rich_text?: Array<{ plain_text?: string }> }).rich_text ?? []
+        const text = richText.map(rt => rt.plain_text ?? '').join('')
         return {
           id: b.id,
           level: parseInt(b.type.replace('heading_', '')),

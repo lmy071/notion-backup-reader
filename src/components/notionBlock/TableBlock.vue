@@ -1,22 +1,21 @@
 <script setup lang="ts">
-import type { NotionBlock, RichText } from '@/types/notion'
+import type { NotionBlock } from '@/types/notion'
 import RichTextBlock from './RichTextBlock.vue'
 
 const props = defineProps<{
   block: NotionBlock
 }>()
 
-interface TableRow extends NotionBlock {
-  type: string
-  table_row: {
-    cells: RichText[][]
-  }
+// parseBlock 已将 table 相关字段提取到顶层
+const block = props.block as {
+  table_width?: number
+  has_column_header?: boolean
+  has_row_header?: boolean
+  children?: NotionBlock[]
 }
-
-const tableData = (props.block as { table: { has_column_header: boolean; has_row_header: boolean; children?: TableRow[] } }).table
-const hasColumnHeader = tableData?.has_column_header ?? false
-const hasRowHeader = tableData?.has_row_header ?? false
-const rows: TableRow[] = tableData?.children ?? []
+const hasColumnHeader = block.has_column_header ?? false
+const hasRowHeader = block.has_row_header ?? false
+const rows = block.children ?? []
 </script>
 
 <template>
@@ -25,21 +24,21 @@ const rows: TableRow[] = tableData?.children ?? []
       <tbody>
         <tr
           v-for="(row, rowIdx) in rows"
-          :key="row.id"
+          :key="(row as { id: string }).id"
           :class="{
             'bg-gray-50 font-medium': hasColumnHeader && rowIdx === 0,
             'border-t border-gray-200': rowIdx > 0,
           }"
         >
           <td
-            v-for="(cell, colIdx) in row.table_row.cells"
+            v-for="(cell, colIdx) in (row as { cells?: unknown[] }).cells ?? []"
             :key="colIdx"
             :class="{
               'font-semibold bg-gray-50': hasRowHeader && colIdx === 0,
             }"
             class="px-4 py-2 text-sm text-gray-800 border-r border-gray-100 last:border-r-0"
           >
-            <RichTextBlock :rich-text="cell" />
+            <RichTextBlock :rich-text="(cell as any)" />
           </td>
         </tr>
       </tbody>

@@ -7,9 +7,7 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-const toggleData = (props.block as { toggle: { rich_text: RichText[] } }).toggle
-const richText = toggleData?.rich_text ?? []
-
+const richText = (props.block as { rich_text?: RichText[] }).rich_text ?? []
 const isOpen = ref(false)
 </script>
 

@@ -6,10 +6,11 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-const callout = (props.block as { callout: { icon?: { emoji: string }; rich_text: RichText[]; color: string } }).callout
-const emoji = callout?.icon?.emoji ?? ''
-const richText = callout?.rich_text ?? []
-const color = callout?.color ?? 'default'
+// parseBlock 已将 callout 数据提取到顶层
+const block = props.block as { rich_text?: RichText[]; color?: string; icon?: string }
+const richText = block.rich_text ?? []
+const emoji = block.icon ?? ''
+const color = block.color ?? 'default'
 
 const bgColorMap: Record<string, string> = {
   default: 'bg-gray-50 border-gray-200',

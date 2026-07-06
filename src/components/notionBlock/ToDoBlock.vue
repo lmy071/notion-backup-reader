@@ -6,9 +6,10 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-const todoData = (props.block as { to_do: { checked: boolean; rich_text: RichText[] } }).to_do
-const checked = todoData?.checked ?? false
-const richText = todoData?.rich_text ?? []
+// parseBlock 已将 to_do 数据提取到顶层: block.rich_text + block.checked
+const block = props.block as { rich_text?: RichText[]; checked?: boolean }
+const richText = block.rich_text ?? []
+const checked = block.checked ?? false
 </script>
 
 <template>

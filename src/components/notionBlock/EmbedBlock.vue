@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import type { NotionBlock } from '@/types/notion'
 
@@ -5,8 +6,8 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-const embed = (props.block as { embed: { url: string; caption?: unknown[] } }).embed
-const url = embed?.url ?? ''
+// parseBlock 已将 url 提取到顶层
+const url = (props.block as { url?: string }).url ?? ''
 </script>
 
 <template>

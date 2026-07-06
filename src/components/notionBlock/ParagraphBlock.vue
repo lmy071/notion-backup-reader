@@ -6,17 +6,8 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-function getRichText(): NotionBlock['paragraph'] {
-  const type = props.block.type
-  if (type === 'paragraph') return (props.block as { paragraph: Record<string, unknown> }).paragraph
-  if (type === 'bulleted_list_item') return (props.block as { bulleted_list_item: Record<string, unknown> }).bulleted_list_item
-  if (type === 'numbered_list_item') return (props.block as { numbered_list_item: Record<string, unknown> }).numbered_list_item
-  if (type === 'to_do') return (props.block as { to_do: Record<string, unknown> }).to_do
-  if (type === 'toggle') return (props.block as { toggle: Record<string, unknown> }).toggle
-  return null
-}
-
-const richText = (getRichText() as { rich_text?: unknown[] })?.rich_text ?? []
+// parseBlock 已将 rich_text 提取到顶层
+const richText = (props.block as { rich_text?: unknown[] }).rich_text ?? []
 </script>
 
 <template>

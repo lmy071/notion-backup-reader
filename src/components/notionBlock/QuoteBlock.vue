@@ -6,8 +6,7 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-const quoteData = (props.block as { quote: { rich_text: RichText[] } }).quote
-const richText = quoteData?.rich_text ?? []
+const richText = (props.block as { rich_text?: RichText[] }).rich_text ?? []
 </script>
 
 <template>

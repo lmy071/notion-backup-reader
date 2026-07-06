@@ -6,9 +6,10 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-const bookmark = (props.block as { bookmark: { url: string; caption: RichText[] } }).bookmark
-const url = bookmark?.url ?? ''
-const caption = bookmark?.caption ?? []
+// parseBlock 已将 url 提取到顶层，但 caption 未保留
+const block = props.block as { url?: string; caption?: RichText[] }
+const url = block.url ?? ''
+const caption = block.caption ?? []
 
 function getHostname(u: string): string {
   try {

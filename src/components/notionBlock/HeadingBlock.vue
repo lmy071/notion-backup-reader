@@ -6,15 +6,7 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-function getHeadingData() {
-  if (props.block.type === 'heading_1') return (props.block as { heading_1: Record<string, unknown> }).heading_1
-  if (props.block.type === 'heading_2') return (props.block as { heading_2: Record<string, unknown> }).heading_2
-  if (props.block.type === 'heading_3') return (props.block as { heading_3: Record<string, unknown> }).heading_3
-  return null
-}
-
-const data = getHeadingData()
-const richText = (data as { rich_text?: unknown[] })?.rich_text ?? []
+const richText = (props.block as { rich_text?: unknown[] }).rich_text ?? []
 
 const tagLevel: Record<string, string> = {
   heading_1: 'h1',

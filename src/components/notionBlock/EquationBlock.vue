@@ -5,8 +5,8 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-const equation = (props.block as { equation: { expression: string } }).equation
-const expression = equation?.expression ?? ''
+// parseBlock 已将 expression 提取到顶层
+const expression = (props.block as { expression?: string }).expression ?? ''
 </script>
 
 <template>

@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import type { NotionBlock, RichText } from '@/types/notion'
-import RichTextBlock from './RichTextBlock.vue'
 
 const props = defineProps<{
   block: NotionBlock
 }>()
 
-const codeData = (props.block as { code: { language: string; rich_text: RichText[] } }).code
-const language = codeData?.language ?? 'plain text'
-const richText = codeData?.rich_text ?? []
+// parseBlock 已将 code 数据提取到顶层
+const block = props.block as { language?: string; rich_text?: RichText[]; caption?: RichText[] }
+const language = block.language ?? 'plain text'
+const richText = block.rich_text ?? []
 
 function getCodeContent(): string {
   return richText.map((rt) => rt.plain_text).join('')

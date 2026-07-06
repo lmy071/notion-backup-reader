@@ -6,10 +6,8 @@ const props = defineProps<{
 }>()
 
 const isDatabase = props.block.type === 'child_database'
-const childPage = (props.block as { child_page?: { title: string } }).child_page
-const childDatabase = (props.block as { child_database?: { title: string } }).child_database
-const data = childPage || childDatabase
-const title = data?.title ?? 'Untitled'
+// parseBlock 已将 title 提取到顶层
+const title = (props.block as { title?: string }).title ?? 'Untitled'
 const icon = isDatabase ? '🗄️' : '📄'
 const label = isDatabase ? 'Database' : 'Page'
 </script>
