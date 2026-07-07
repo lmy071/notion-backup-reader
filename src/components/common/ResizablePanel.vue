@@ -56,7 +56,6 @@ onUnmounted(cleanup)
 
 <template>
   <div class="flex h-full relative" :style="{ width: `${width}px`, minWidth: `${minWidth}px` }">
-    <!-- 内容区域 -->
     <div class="flex-1 overflow-hidden">
       <slot />
     </div>
@@ -64,7 +63,9 @@ onUnmounted(cleanup)
     <!-- 可拖拽分隔条 -->
     <div
       class="absolute top-0 right-0 w-4px h-full cursor-col-resize z-10 transition-colors"
-      :class="isResizing ? 'bg-[var(--c-primary)]' : 'bg-transparent hover:bg-[var(--c-primary-light)]'"
+      :style="{
+        backgroundColor: isResizing ? 'var(--c-brand)' : 'transparent',
+      }"
       @pointerdown.prevent="onPointerDown"
     />
   </div>

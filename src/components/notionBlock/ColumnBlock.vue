@@ -6,17 +6,20 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-const children = props.block.children ?? []
+const columns = (props.block as { children?: NotionBlock[] }).children ?? []
 </script>
 
 <template>
   <div class="flex gap-4 my-4">
     <div
-      v-for="column in children"
-      :key="column.id"
+      v-for="col in columns"
+      :key="col.id"
       class="flex-1 min-w-0"
     >
-      <NotionRenderer :blocks="column.children ?? []" />
+      <NotionRenderer
+        v-if="(col as { children?: NotionBlock[] }).children"
+        :blocks="(col as { children?: NotionBlock[] }).children ?? []"
+      />
     </div>
   </div>
 </template>

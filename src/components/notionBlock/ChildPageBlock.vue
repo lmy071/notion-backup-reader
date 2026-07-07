@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { inject, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { NotionBlock } from '@/types/notion'
 
@@ -9,14 +10,11 @@ const props = defineProps<{
 const router = useRouter()
 
 const isDatabase = props.block.type === 'child_database'
-// parseBlock 已将 title 提取到顶层，block.id 即是 Notion page_id
 const title = (props.block as { title?: string }).title ?? 'Untitled'
 const icon = isDatabase ? '🗄️' : '📄'
 const label = isDatabase ? 'Database' : 'Page'
 const childPageId = props.block.id
 
-// 从 ReaderView 通过 provide 注入的参数
-import { inject, type Ref } from 'vue'
 const readerRootPageId = inject<Ref<string>>('readerRootPageId')
 const readerDate = inject<Ref<string>>('readerDate')
 
@@ -34,14 +32,15 @@ function navigateToChild() {
 
 <template>
   <div
-    class="my-2 p-3 rounded-lg border border-gray-200 bg-gray-50 flex items-center gap-3 transition-colors"
-    :class="isDatabase ? 'cursor-default' : 'hover:bg-gray-100 cursor-pointer'"
+    class="my-2 p-3 rounded-lg flex items-center gap-3 transition-colors"
+    style="border: 1px solid var(--c-border); background-color: var(--c-callout-bg)"
+    :class="isDatabase ? 'cursor-default' : 'cursor-pointer'"
     @click="navigateToChild"
   >
     <span class="text-xl">{{ icon }}</span>
     <div>
-      <p class="font-medium text-gray-800">{{ title }}</p>
-      <p class="text-xs text-gray-400">Child {{ label }}</p>
+      <p style="color: var(--c-text)">{{ title }}</p>
+      <p class="text-xs" style="color: var(--c-text-tertiary)">Child {{ label }}</p>
     </div>
   </div>
 </template>

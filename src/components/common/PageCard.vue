@@ -28,11 +28,12 @@ function formatDate(iso: string): string {
 
 <template>
   <article
-    class="card cursor-pointer overflow-hidden transition-shadow hover:shadow-md"
+    class="cursor-pointer overflow-hidden transition-shadow hover:shadow-md"
+    style="background-color: var(--c-card-bg); border: 1px solid var(--c-card-border); border-radius: 8px"
     @click="emit('navigate', pageId)"
   >
     <!-- 封面图 -->
-    <div v-if="coverUrl" class="w-full h-32 overflow-hidden bg-[var(--c-bg-secondary)]">
+    <div v-if="coverUrl" class="w-full h-32 overflow-hidden" style="background-color: var(--c-bg-secondary)">
       <img
         :src="coverUrl"
         :alt="title"
@@ -43,26 +44,21 @@ function formatDate(iso: string): string {
 
     <!-- 卡片内容 -->
     <div class="p-4">
-      <!-- 标题行 -->
       <div class="flex items-start gap-2 mb-2">
         <span v-if="icon" class="text-xl leading-none shrink-0">{{ icon }}</span>
-        <h3 class="text-sm font-semibold line-clamp-2 leading-snug">
+        <h3 class="text-sm font-semibold line-clamp-2 leading-snug" style="color: var(--c-text-primary)">
           {{ title || '无标题' }}
         </h3>
       </div>
 
-      <!-- 元信息 -->
-      <div class="flex flex-wrap items-center gap-3 text-xs text-[var(--c-text-secondary)] mt-3">
+      <div class="flex flex-wrap items-center gap-3 mt-3" style="font-size: var(--fs-xs); color: var(--c-text-secondary)">
         <span v-if="lastSync" class="flex items-center gap-1">
-          <span class="i-carbon-time w-3 h-3" />
           {{ formatDate(lastSync) }}
         </span>
         <span class="flex items-center gap-1">
-          <span class="i-carbon-document w-3 h-3" />
           {{ blockCount }} 块
         </span>
         <span v-if="childCount > 0" class="flex items-center gap-1">
-          <span class="i-carbon-tree-view w-3 h-3" />
           {{ childCount }} 子页
         </span>
       </div>

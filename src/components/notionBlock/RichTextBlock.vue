@@ -5,32 +5,29 @@ defineProps<{
   richText: RichText[]
 }>()
 
-// 注意：parseRichText 已将 annotations 字段扁平化到顶层
-// item.code / item.bold / item.italic / ... 直接可用
-
-function getColorClass(color: string): string {
-  const colorMap: Record<string, string> = {
+function getColorVar(color: string): string {
+  const map: Record<string, string> = {
     default: '',
-    gray: 'text-gray-500',
-    brown: 'text-amber-700',
-    orange: 'text-orange-500',
-    yellow: 'text-yellow-500',
-    green: 'text-green-500',
-    blue: 'text-blue-500',
-    purple: 'text-purple-500',
-    pink: 'text-pink-500',
-    red: 'text-red-500',
-    gray_background: 'bg-gray-100 rounded',
-    brown_background: 'bg-amber-100 rounded',
-    orange_background: 'bg-orange-100 rounded',
-    yellow_background: 'bg-yellow-100 rounded',
-    green_background: 'bg-green-100 rounded',
-    blue_background: 'bg-blue-100 rounded',
-    purple_background: 'bg-purple-100 rounded',
-    pink_background: 'bg-pink-100 rounded',
-    red_background: 'bg-red-100 rounded',
+    gray: 'var(--c-rt-gray)',
+    brown: 'var(--c-rt-brown)',
+    orange: 'var(--c-rt-orange)',
+    yellow: 'var(--c-rt-yellow)',
+    green: 'var(--c-rt-green)',
+    blue: 'var(--c-rt-blue)',
+    purple: 'var(--c-rt-purple)',
+    pink: 'var(--c-rt-pink)',
+    red: 'var(--c-rt-red)',
+    gray_background: 'var(--c-rt-gray-bg)',
+    brown_background: 'var(--c-rt-brown-bg)',
+    orange_background: 'var(--c-rt-orange-bg)',
+    yellow_background: 'var(--c-rt-yellow-bg)',
+    green_background: 'var(--c-rt-green-bg)',
+    blue_background: 'var(--c-rt-blue-bg)',
+    purple_background: 'var(--c-rt-purple-bg)',
+    pink_background: 'var(--c-rt-pink-bg)',
+    red_background: 'var(--c-rt-red-bg)',
   }
-  return colorMap[color] || ''
+  return map[color] || ''
 }
 </script>
 
@@ -39,14 +36,15 @@ function getColorClass(color: string): string {
     <!-- Mention -->
     <span
       v-if="item.type === 'mention'"
-      class="inline-flex items-center px-1 py-0.5 rounded bg-gray-100 text-gray-600 text-sm"
+      class="inline-flex items-center px-1 py-0.5 rounded text-sm"
+      :style="{ backgroundColor: 'var(--c-mention-bg)', color: 'var(--c-mention-text)' }"
     >@{{ item.plain_text }}</span>
 
     <!-- Inline code -->
     <code
       v-else-if="(item as any).code"
-      :class="getColorClass((item as any).color)"
-      class="px-1 py-0.5 bg-red-50 text-red-500 font-mono text-sm rounded"
+      class="px-1 py-0.5 font-mono text-sm rounded"
+      :style="{ backgroundColor: 'var(--c-inline-code-bg)', color: 'var(--c-inline-code-text)' }"
     >{{ item.plain_text }}</code>
 
     <!-- Link -->
@@ -55,29 +53,29 @@ function getColorClass(color: string): string {
       :href="(item as any).link.url"
       target="_blank"
       rel="noopener noreferrer"
-      :class="getColorClass((item as any).color)"
-      class="underline decoration-blue-400 text-blue-600 hover:text-blue-800"
       :style="{
+        color: 'var(--c-link)',
         fontWeight: (item as any).bold ? 'bold' : 'normal',
         fontStyle: (item as any).italic ? 'italic' : 'normal',
-        textDecoration: ([
-          'underline',
+        textDecoration: [
           (item as any).strikethrough ? 'line-through' : '',
-        ] as string[]).filter(Boolean).join(' '),
+          'underline',
+        ].filter(Boolean).join(' '),
       }"
     >{{ item.plain_text }}</a>
 
     <!-- Plain text with annotations -->
     <span
       v-else
-      :class="getColorClass((item as any).color)"
       :style="{
+        color: getColorVar((item as any).color) || 'var(--c-text)',
         fontWeight: (item as any).bold ? 'bold' : 'normal',
         fontStyle: (item as any).italic ? 'italic' : 'normal',
-        textDecoration: ([
+        textDecoration: [
           (item as any).underline ? 'underline' : '',
           (item as any).strikethrough ? 'line-through' : '',
-        ] as string[]).filter(Boolean).join(' ') || 'none',
+        ].filter(Boolean).join(' ') || 'none',
+        backgroundColor: ((item as any).color || '').endsWith('_background') ? getColorVar((item as any).color) : '',
       }"
     >{{ item.plain_text }}</span>
   </template>

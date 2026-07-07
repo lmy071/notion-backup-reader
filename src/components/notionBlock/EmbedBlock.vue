@@ -1,4 +1,3 @@
-
 <script setup lang="ts">
 import type { NotionBlock } from '@/types/notion'
 
@@ -6,7 +5,6 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-// parseBlock 已将 url 提取到顶层
 const url = (props.block as { url?: string }).url ?? ''
 </script>
 
@@ -15,12 +13,15 @@ const url = (props.block as { url?: string }).url ?? ''
     <iframe
       v-if="url"
       :src="url"
-      class="w-full rounded-lg border border-gray-200"
-      style="height: 400px"
-      sandbox="allow-scripts allow-same-origin"
-      loading="lazy"
+      class="w-full rounded-lg"
+      style="border: 1px solid var(--c-embed-border); height: 400px"
+      allowfullscreen
     />
-    <div v-else class="p-4 rounded-lg border border-gray-200 bg-gray-50 text-center text-gray-400 text-sm">
+    <div
+      v-else
+      class="p-4 rounded-lg text-center text-sm"
+      style="background-color: var(--c-embed-bg); border: 1px solid var(--c-embed-border); color: var(--c-text-tertiary)"
+    >
       Embed (no URL)
     </div>
   </div>

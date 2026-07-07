@@ -5,15 +5,17 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-// parseBlock 已将 expression 提取到顶层
 const expression = (props.block as { expression?: string }).expression ?? ''
 </script>
 
 <template>
-  <div class="my-4 overflow-x-auto rounded bg-gray-50 p-3 border border-gray-200">
-    <div class="flex items-center justify-between mb-1">
-      <span class="text-xs text-gray-400 font-mono">KaTeX</span>
+  <div
+    class="my-4 overflow-x-auto rounded p-3"
+    style="border: 1px solid var(--c-code-border); background-color: var(--c-code-bg)"
+  >
+    <div class="mb-1">
+      <span class="text-xs font-mono" style="color: var(--c-text-tertiary)">KaTeX</span>
     </div>
-    <code class="text-sm font-mono text-gray-700">{{ expression }}</code>
+    <code class="text-sm font-mono" style="color: var(--c-text)">{{ expression }}</code>
   </div>
 </template>

@@ -14,15 +14,23 @@ const isOpen = ref(false)
 <template>
   <div class="my-1">
     <button
-      class="flex items-center gap-2 text-gray-800 hover:text-gray-600 w-full text-left cursor-pointer"
+      class="flex items-center gap-2 w-full text-left cursor-pointer"
+      style="color: var(--c-text); font-size: var(--fs-base)"
       @click="isOpen = !isOpen"
     >
-      <span class="text-xs transition-transform" :class="{ 'rotate-90': isOpen }">▶</span>
-      <span class="font-medium">
+      <span
+        class="text-xs inline-block transition-transform"
+        :style="{ transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }"
+      >▶</span>
+      <span>
         <RichTextBlock :rich-text="(richText as any)" />
       </span>
     </button>
-    <div v-if="isOpen" class="pl-6 mt-1 border-l-2 border-gray-200">
+    <div
+      v-if="isOpen"
+      class="pl-6 mt-1"
+      style="border-left: 2px solid var(--c-border)"
+    >
       <slot />
     </div>
   </div>

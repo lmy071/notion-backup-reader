@@ -1,34 +1,186 @@
+/* ==============================
+ *  Design Tokens — 亮色 / 暗色
+ *  通过 html.dark 或 data-theme="dark" 切换
+ * ============================== */
+
 :root {
-  /* --- theme colors --- */
-  --c-primary: #4f46e5;
-  --c-primary-hover: #4338ca;
-  --c-primary-light: #e0e7ff;
+  /* ── 品牌色 ── */
+  --c-brand: #4f46e5;
+  --c-brand-hover: #4338ca;
+  --c-brand-light: #e0e7ff;
+
+  /* ── 页面背景 ── */
   --c-bg: #ffffff;
   --c-bg-secondary: #f9fafb;
+  --c-bg-tertiary: #f3f4f6;
+
+  /* ── 文字 ── */
   --c-text: #1f2937;
+  --c-text-primary: #111827;
   --c-text-secondary: #6b7280;
+  --c-text-tertiary: #9ca3af;
+
+  /* ── 边框 / 分割线 ── */
   --c-border: #e5e7eb;
+  --c-border-light: #f3f4f6;
+
+  /* ── 链接 ── */
+  --c-link: #2563eb;
+  --c-link-hover: #1d4ed8;
+
+  /* ── 状态色 ── */
   --c-success: #16a34a;
   --c-warning: #d97706;
   --c-danger: #dc2626;
+  --c-danger-bg: #fef2f2;
 
-  /* --- spacing --- */
-  --s-1: 4px;
-  --s-2: 8px;
-  --s-3: 12px;
-  --s-4: 16px;
-  --s-5: 20px;
-  --s-6: 24px;
-  --s-8: 32px;
-  --s-10: 40px;
-  --s-12: 48px;
+  /* ── 语义色 — 富文本 ── */
+  --c-rt-gray:            #6b7280;
+  --c-rt-brown:           #92400e;
+  --c-rt-orange:          #ea580c;
+  --c-rt-yellow:          #ca8a04;
+  --c-rt-green:           #16a34a;
+  --c-rt-blue:            #2563eb;
+  --c-rt-purple:          #9333ea;
+  --c-rt-pink:            #db2777;
+  --c-rt-red:             #dc2626;
+  --c-rt-gray-bg:         #f3f4f6;
+  --c-rt-brown-bg:        #fef3c7;
+  --c-rt-orange-bg:       #fff7ed;
+  --c-rt-yellow-bg:       #fefce8;
+  --c-rt-green-bg:        #f0fdf4;
+  --c-rt-blue-bg:         #eff6ff;
+  --c-rt-purple-bg:       #faf5ff;
+  --c-rt-pink-bg:         #fdf2f8;
+  --c-rt-red-bg:          #fef2f2;
 
-  /* --- font sizes --- */
-  --fs-xs: 12px;
-  --fs-sm: 14px;
-  --fs-base: 16px;
-  --fs-lg: 18px;
-  --fs-xl: 20px;
-  --fs-2xl: 24px;
-  --fs-3xl: 30px;
+  /* ── Block 专用 ── */
+  --c-callout-bg:           #f9fafb;
+  --c-callout-border:       #e5e7eb;
+  --c-quote-border:         #d1d5db;
+  --c-quote-text:           #6b7280;
+  --c-code-bg:              #f9fafb;
+  --c-code-header-bg:       #f3f4f6;
+  --c-code-border:          #e5e7eb;
+  --c-table-border:         #e5e7eb;
+  --c-table-header-bg:      #f9fafb;
+  --c-table-stripe:         #f9fafb;
+  --c-divider:              #e5e7eb;
+  --c-toggle-hover:         #4b5563;
+  --c-todo-border:          #d1d5db;
+  --c-todo-checked-bg:      #3b82f6;
+  --c-todo-checked-border:  #3b82f6;
+  --c-bookmark-bg:          transparent;
+  --c-bookmark-border:      #e5e7eb;
+  --c-bookmark-hover-border:#93c5fd;
+  --c-bookmark-hover-bg:    #f9fafb;
+  --c-embed-border:         #e5e7eb;
+  --c-embed-bg:             #f9fafb;
+  --c-file-bg:              #f9fafb;
+  --c-file-border:          #e5e7eb;
+  --c-file-download:        #2563eb;
+  --c-unsupported-bg:       #fffbeb;
+  --c-unsupported-border:   #fde68a;
+  --c-unsupported-text:     #92400e;
+  --c-inline-code-bg:       #fef2f2;
+  --c-inline-code-text:     #ef4444;
+  --c-mention-bg:           #f3f4f6;
+  --c-mention-text:         #6b7280;
+  --c-card-bg:              #ffffff;
+  --c-card-border:          #f3f4f6;
+  --c-shadow:               0 1px 3px rgba(0,0,0,0.08);
+  --c-shadow-md:            0 4px 6px rgba(0,0,0,0.07);
+
+  /* ── 间距（仅亮/暗不变） ── */
+  --s-1: 4px;  --s-2: 8px;  --s-3: 12px;  --s-4: 16px;
+  --s-5: 20px; --s-6: 24px; --s-8: 32px;  --s-10: 40px;  --s-12: 48px;
+
+  /* ── 字号 ── */
+  --fs-xs: 12px; --fs-sm: 14px; --fs-base: 16px;
+  --fs-lg: 18px; --fs-xl: 20px; --fs-2xl: 24px; --fs-3xl: 30px;
+}
+
+/* ====== 暗色主题 ====== */
+html.dark,
+[data-theme="dark"] {
+  --c-brand:          #818cf8;
+  --c-brand-hover:    #6366f1;
+  --c-brand-light:    #312e81;
+
+  --c-bg:             #0f1117;
+  --c-bg-secondary:   #161822;
+  --c-bg-tertiary:    #1d2030;
+
+  --c-text:           #d1d5db;
+  --c-text-primary:   #f3f4f6;
+  --c-text-secondary: #9ca3af;
+  --c-text-tertiary:  #6b7280;
+
+  --c-border:         #2d3044;
+  --c-border-light:   #222537;
+
+  --c-link:           #60a5fa;
+  --c-link-hover:     #93c5fd;
+
+  --c-success:        #4ade80;
+  --c-warning:        #fbbf24;
+  --c-danger:         #f87171;
+  --c-danger-bg:      #450a0a;
+
+  /* 富文本色 */
+  --c-rt-gray:        #9ca3af;
+  --c-rt-brown:       #f59e0b;
+  --c-rt-orange:      #f97316;
+  --c-rt-yellow:      #eab308;
+  --c-rt-green:       #4ade80;
+  --c-rt-blue:        #60a5fa;
+  --c-rt-purple:      #a78bfa;
+  --c-rt-pink:        #f472b6;
+  --c-rt-red:         #f87171;
+  --c-rt-gray-bg:     #1f2937;
+  --c-rt-brown-bg:    #451a03;
+  --c-rt-orange-bg:   #431407;
+  --c-rt-yellow-bg:   #422006;
+  --c-rt-green-bg:    #052e16;
+  --c-rt-blue-bg:     #172554;
+  --c-rt-purple-bg:   #2e1065;
+  --c-rt-pink-bg:     #500724;
+  --c-rt-red-bg:      #450a0a;
+
+  /* Block 专用 */
+  --c-callout-bg:           #1d2030;
+  --c-callout-border:       #2d3044;
+  --c-quote-border:         #374151;
+  --c-quote-text:           #9ca3af;
+  --c-code-bg:              #111318;
+  --c-code-header-bg:       #1d2030;
+  --c-code-border:          #2d3044;
+  --c-table-border:         #2d3044;
+  --c-table-header-bg:      #1d2030;
+  --c-table-stripe:         #1a1d28;
+  --c-divider:              #2d3044;
+  --c-toggle-hover:         #9ca3af;
+  --c-todo-border:          #4b5563;
+  --c-todo-checked-bg:      #4f46e5;
+  --c-todo-checked-border:  #6366f1;
+  --c-bookmark-bg:          #1d2030;
+  --c-bookmark-border:      #2d3044;
+  --c-bookmark-hover-border:#3b82f6;
+  --c-bookmark-hover-bg:    #1f2937;
+  --c-embed-border:         #2d3044;
+  --c-embed-bg:             #1d2030;
+  --c-file-bg:              #1d2030;
+  --c-file-border:          #2d3044;
+  --c-file-download:        #60a5fa;
+  --c-unsupported-bg:       #422006;
+  --c-unsupported-border:   #713f12;
+  --c-unsupported-text:     #fde68a;
+  --c-inline-code-bg:       #450a0a;
+  --c-inline-code-text:     #fca5a5;
+  --c-mention-bg:           #1d2030;
+  --c-mention-text:         #9ca3af;
+  --c-card-bg:              #161822;
+  --c-card-border:          #2d3044;
+  --c-shadow:               0 1px 3px rgba(0,0,0,0.3);
+  --c-shadow-md:            0 4px 6px rgba(0,0,0,0.4);
 }

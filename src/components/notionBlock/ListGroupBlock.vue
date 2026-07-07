@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { NotionBlock } from '@/types/notion'
 import NotionRenderer from './NotionRenderer.vue'
 
@@ -6,19 +7,16 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-const isOrdered = props.block.type === 'numbered_list'
-const children = props.block.children ?? []
+const listType = props.block.type as 'bulleted_list' | 'numbered_list'
+const children = (props.block as { children?: NotionBlock[] }).children ?? []
+
+const listTag = computed(() => (listType === 'bulleted_list' ? 'ul' : 'ol'))
 </script>
 
 <template>
-  <ol v-if="isOrdered" class="my-2 pl-6 list-decimal list-outside space-y-1">
+  <component :is="listTag" class="my-2 pl-5" :style="{ color: 'var(--c-text)' }">
     <li v-for="child in children" :key="child.id">
       <NotionRenderer :blocks="[child]" />
     </li>
-  </ol>
-  <ul v-else class="my-2 pl-6 list-disc list-outside space-y-1">
-    <li v-for="child in children" :key="child.id">
-      <NotionRenderer :blocks="[child]" />
-    </li>
-  </ul>
+  </component>
 </template>

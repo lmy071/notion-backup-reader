@@ -18,22 +18,23 @@ function handleClick() {
 <template>
   <div class="my-4">
     <div
-      class="flex items-center gap-3 p-3 rounded-lg border border-gray-200 bg-gray-50"
-      :class="fileUrl ? 'cursor-pointer hover:bg-gray-100' : 'opacity-60'"
+      class="flex items-center gap-3 p-3 rounded-lg"
+      :class="fileUrl ? 'cursor-pointer' : ''"
+      style="border: 1px solid var(--c-file-border); background-color: var(--c-file-bg)"
       :title="fileUrl ? '点击下载' : '下载链接不可用（需重新同步）'"
       @click="handleClick"
     >
       <span class="text-xl">{{ fileUrl ? '📎' : '📁' }}</span>
       <div class="flex-1 min-w-0">
-        <p class="font-medium text-gray-800 text-sm truncate">{{ fileName }}</p>
+        <p class="text-sm truncate" style="color: var(--c-text)">{{ fileName }}</p>
         <template v-if="fileUrl">
-          <span class="text-blue-600 text-xs break-all hover:underline">{{ fileUrl }}</span>
+          <span class="text-xs break-all" style="color: var(--c-file-download)">{{ fileUrl }}</span>
         </template>
         <template v-else>
-          <span class="text-gray-400 text-xs">下载链接不可用，请重新同步此页面</span>
+          <span class="text-xs" style="color: var(--c-text-tertiary)">下载链接不可用，请重新同步此页面</span>
         </template>
       </div>
-      <span v-if="fileUrl" class="text-blue-500 text-sm shrink-0">↓</span>
+      <span v-if="fileUrl" class="text-sm shrink-0" style="color: var(--c-link)">↓</span>
     </div>
   </div>
 </template>

@@ -1,40 +1,43 @@
 <script setup lang="ts">
 import type { NotionBlock, RichText } from '@/types/notion'
-import RichTextBlock from './RichTextBlock.vue'
 
 const props = defineProps<{
   block: NotionBlock
 }>()
 
-// parseBlock 已将 url 提取到顶层，但 caption 未保留
-const block = props.block as { url?: string; caption?: RichText[] }
-const url = block.url ?? ''
-const caption = block.caption ?? []
+const url = (props.block as { url?: string }).url ?? ''
+const caption = (props.block as { caption?: RichText[] }).caption ?? []
 
-function getHostname(u: string): string {
+function getHostname(rawUrl: string): string {
   try {
-    return new URL(u).hostname
+    return new URL(rawUrl).hostname.replace('www.', '')
   } catch {
-    return u
+    return rawUrl
   }
 }
 </script>
 
 <template>
   <a
+    v-if="url"
     :href="url"
     target="_blank"
     rel="noopener noreferrer"
-    class="block my-4 p-4 rounded-lg border border-gray-200 hover:border-blue-300 hover:shadow-sm transition-colors no-underline"
+    class="block my-4 p-4 rounded-lg no-underline transition-colors"
+    style="background-color: var(--c-bookmark-bg); border: 1px solid var(--c-bookmark-border)"
   >
-    <div class="flex items-center gap-3">
-      <span class="text-lg">🔗</span>
-      <div class="flex-1 min-w-0">
-        <p v-if="caption.length > 0" class="text-sm text-gray-700 font-medium truncate">
-          <RichTextBlock :rich-text="(caption as any)" />
-        </p>
-        <p class="text-xs text-gray-400 truncate">{{ getHostname(url) }}</p>
-      </div>
-    </div>
+    <p v-if="caption.length > 0" class="text-sm font-medium truncate" style="color: var(--c-text)">
+      {{ caption.map(c => c.plain_text).join('') }}
+    </p>
+    <p class="text-xs truncate" style="color: var(--c-text-tertiary); margin-top: var(--s-1)">
+      {{ getHostname(url) }}
+    </p>
   </a>
+  <div
+    v-else
+    class="my-4 p-4 rounded-lg text-center text-sm"
+    style="background-color: var(--c-callout-bg); border: 1px solid var(--c-callout-border); color: var(--c-text-tertiary)"
+  >
+    Bookmark (no URL)
+  </div>
 </template>

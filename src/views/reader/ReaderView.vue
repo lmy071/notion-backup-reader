@@ -14,7 +14,6 @@ const route = useRoute()
 const rootPageId = (route.query.root as string) || props.pageId
 const date = (route.query.date as string) || ''
 
-// 向下传递给 ChildPageBlock 用于子页面跳转
 provide('readerRootPageId', computed(() => rootPageId))
 provide('readerDate', computed(() => date))
 
@@ -37,9 +36,15 @@ const {
       :max-width="500"
       @update:width="sidebarWidth = $event"
     >
-      <div class="h-full flex flex-col border-r border-[var(--c-border)]">
-        <div class="px-4 py-3 border-b border-[var(--c-border)]">
-          <h2 class="text-sm font-semibold text-[var(--c-text-secondary)] uppercase tracking-wider">
+      <div class="h-full flex flex-col" style="border-right: 1px solid var(--c-border)">
+        <div
+          class="px-4 py-3"
+          style="border-bottom: 1px solid var(--c-border)"
+        >
+          <h2
+            class="text-sm font-semibold uppercase tracking-wider"
+            style="color: var(--c-text-secondary)"
+          >
             目录
           </h2>
         </div>
@@ -53,8 +58,11 @@ const {
     <div class="flex-1 overflow-y-auto">
       <!-- 加载状态 -->
       <div v-if="loading" class="flex items-center justify-center h-full">
-        <div class="flex flex-col items-center gap-3 text-[var(--c-text-secondary)]">
-          <div class="w-8 h-8 border-2 border-[var(--c-primary)] border-t-transparent rounded-full animate-spin" />
+        <div class="flex flex-col items-center gap-3" style="color: var(--c-text-secondary)">
+          <div
+            class="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin"
+            style="border-color: var(--c-brand); border-top-color: transparent"
+          />
           <span class="text-sm">加载页面...</span>
         </div>
       </div>
@@ -62,17 +70,20 @@ const {
       <!-- 错误状态 -->
       <div v-else-if="error" class="flex flex-col items-center justify-center h-full gap-4">
         <div class="text-5xl">⚠️</div>
-        <p class="text-lg text-[var(--c-danger)]">{{ error }}</p>
-        <button class="btn-primary" @click="loadPage">重试</button>
+        <p class="text-lg" style="color: var(--c-danger)">{{ error }}</p>
+        <button
+          class="px-4 py-2 rounded-md font-medium cursor-pointer text-white"
+          style="background-color: var(--c-brand)"
+          @click="loadPage"
+        >重试</button>
       </div>
 
       <!-- 页面内容 -->
       <div v-else-if="page" class="max-w-4xl mx-auto px-8 py-6">
-        <!-- 页面标题区 -->
         <header class="mb-8">
           <div class="flex items-center gap-3 mb-2">
             <span v-if="page.icon" class="text-3xl">{{ page.icon }}</span>
-            <h1 class="text-3xl font-bold">{{ page.title }}</h1>
+            <h1 class="text-3xl font-bold" style="color: var(--c-text-primary)">{{ page.title }}</h1>
           </div>
           <div v-if="page.cover" class="mt-4 rounded-lg overflow-hidden">
             <img
@@ -83,7 +94,6 @@ const {
           </div>
         </header>
 
-        <!-- Notion 内容渲染 -->
         <div class="space-y-2">
           <NotionRenderer :blocks="page.blocks" />
         </div>

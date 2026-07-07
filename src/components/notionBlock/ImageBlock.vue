@@ -5,18 +5,20 @@ const props = defineProps<{
   block: NotionBlock
 }>()
 
-// parseBlock 已将 URL 提取到 block.url 顶层
 const url = (props.block as { url?: string }).url ?? ''
 </script>
 
 <template>
-  <figure class="my-4">
-    <img
-      v-if="url"
-      :src="url"
-      alt=""
-      class="max-w-full h-auto rounded-lg"
-      loading="lazy"
-    />
-  </figure>
+  <div class="my-4">
+    <div v-if="url" class="rounded-lg overflow-hidden" style="border: 1px solid var(--c-callout-border)">
+      <img :src="url" alt="Notion image" class="w-full block" loading="lazy" />
+    </div>
+    <div
+      v-else
+      class="p-4 rounded-lg text-center text-sm"
+      style="border: 1px solid var(--c-callout-border); background-color: var(--c-callout-bg); color: var(--c-text-tertiary)"
+    >
+      Image (no URL)
+    </div>
+  </div>
 </template>

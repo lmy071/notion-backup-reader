@@ -1,26 +1,30 @@
 <script setup lang="ts">
-import type { NotionBlock, RichText } from '@/types/notion'
+import type { NotionBlock } from '@/types/notion'
 import RichTextBlock from './RichTextBlock.vue'
 
 const props = defineProps<{
   block: NotionBlock
 }>()
 
-// parseBlock 已将 to_do 数据提取到顶层: block.rich_text + block.checked
-const block = props.block as { rich_text?: RichText[]; checked?: boolean }
-const richText = block.rich_text ?? []
-const checked = block.checked ?? false
+const richText = (props.block as { rich_text?: unknown[] }).rich_text ?? []
+const checked = (props.block as { checked?: boolean }).checked ?? false
 </script>
 
 <template>
   <div class="flex items-start gap-2 my-1">
     <div
-      :class="checked ? 'bg-blue-500 border-blue-500' : 'border-gray-300'"
-      class="mt-0.5 w-4 h-4 flex-shrink-0 rounded border-2 flex items-center justify-center cursor-default"
+      class="w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 cursor-default"
+      :style="{
+        backgroundColor: checked ? 'var(--c-todo-checked-bg)' : 'transparent',
+        borderColor: checked ? 'var(--c-todo-checked-border)' : 'var(--c-todo-border)',
+      }"
     >
-      <span v-if="checked" class="text-white text-xs leading-none">✓</span>
+      <span v-if="checked" style="color: #fff; font-size: 12px">✓</span>
     </div>
-    <span :class="{ 'line-through text-gray-400': checked }" class="text-gray-800">
+    <span
+      style="color: var(--c-text)"
+      :style="checked ? 'text-decoration: line-through; color: var(--c-text-secondary)' : ''"
+    >
       <RichTextBlock :rich-text="(richText as any)" />
     </span>
   </div>

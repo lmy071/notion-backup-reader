@@ -7,25 +7,17 @@ const props = defineProps<{
 }>()
 
 const richText = (props.block as { rich_text?: unknown[] }).rich_text ?? []
+const level = parseInt(props.block.type.replace('heading_', '')) || 1
 
-const tagLevel: Record<string, string> = {
-  heading_1: 'h1',
-  heading_2: 'h2',
-  heading_3: 'h3',
-}
-
-const sizeClass: Record<string, string> = {
-  heading_1: 'text-3xl font-bold mt-6 mb-2',
-  heading_2: 'text-2xl font-semibold mt-5 mb-2',
-  heading_3: 'text-xl font-semibold mt-4 mb-1',
-}
+const tag = `h${level}` as keyof HTMLElementTagNameMap
+const sizeMap: Record<number, string> = { 1: 'var(--fs-3xl)', 2: 'var(--fs-2xl)', 3: 'var(--fs-xl)' }
 </script>
 
 <template>
   <component
-    :is="tagLevel[block.type] || 'h2'"
-    :class="sizeClass[block.type] || 'text-2xl font-semibold mt-5 mb-2'"
-    class="text-gray-900"
+    :is="tag"
+    class="font-bold mt-6 mb-2"
+    :style="{ fontSize: sizeMap[level] || 'var(--fs-xl)', color: 'var(--c-text-primary)' }"
   >
     <RichTextBlock :rich-text="(richText as any)" />
   </component>

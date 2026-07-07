@@ -7,10 +7,17 @@ defineProps<{
 </script>
 
 <template>
-  <div class="my-2 p-3 rounded-lg border border-yellow-200 bg-yellow-50 flex items-center gap-2">
-    <span class="text-yellow-500">⚠️</span>
-    <span class="text-sm text-yellow-800">
-      Unsupported block type: <code class="px-1 py-0.5 bg-yellow-100 rounded text-xs font-mono">{{ block.type }}</code>
+  <div
+    class="my-2 p-3 rounded-lg flex items-center gap-2"
+    style="background-color: var(--c-unsupported-bg); border: 1px solid var(--c-unsupported-border)"
+  >
+    <span style="color: var(--c-warning)">⚠️</span>
+    <span class="text-sm" style="color: var(--c-unsupported-text)">
+      Unsupported block type:
+      <code
+        class="px-1 py-0.5 rounded text-xs font-mono"
+        style="background-color: var(--c-unsupported-border); color: var(--c-unsupported-text)"
+      >{{ block.type }}</code>
     </span>
   </div>
 </template>

@@ -1,25 +1,32 @@
 <script setup lang="ts">
-import type { NotionBlock, RichText } from '@/types/notion'
+import type { NotionBlock } from '@/types/notion'
 
 const props = defineProps<{
   block: NotionBlock
 }>()
 
-// parseBlock 已将 code 数据提取到顶层
-const block = props.block as { language?: string; rich_text?: RichText[]; caption?: RichText[] }
-const language = block.language ?? 'plain text'
-const richText = block.rich_text ?? []
+const language = (props.block as { language?: string }).language ?? 'plain text'
 
 function getCodeContent(): string {
-  return richText.map((rt) => rt.plain_text).join('')
+  const richText = (props.block as { rich_text?: Array<{ plain_text?: string }> }).rich_text ?? []
+  return richText.map(rt => rt.plain_text ?? '').join('')
 }
 </script>
 
 <template>
-  <div class="my-4 rounded-lg overflow-hidden border border-gray-200">
-    <div class="flex items-center justify-between px-4 py-2 bg-gray-100 text-gray-500 text-xs font-mono">
+  <div
+    class="my-4 rounded-lg overflow-hidden"
+    style="border: 1px solid var(--c-code-border)"
+  >
+    <div
+      class="flex items-center justify-between px-4 py-2 text-xs font-mono"
+      style="background-color: var(--c-code-header-bg); color: var(--c-text-secondary)"
+    >
       <span>{{ language }}</span>
     </div>
-    <pre class="px-4 py-3 bg-gray-50 overflow-x-auto"><code class="text-sm font-mono text-gray-800">{{ getCodeContent() }}</code></pre>
+    <pre
+      class="px-4 py-3 overflow-x-auto"
+      style="background-color: var(--c-code-bg)"
+    ><code class="text-sm font-mono" style="color: var(--c-text)">{{ getCodeContent() }}</code></pre>
   </div>
 </template>
