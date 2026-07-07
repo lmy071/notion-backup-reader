@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 
 const props = withDefaults(defineProps<{
   width: number
@@ -39,12 +39,19 @@ function onPointerMove(e: PointerEvent) {
 }
 
 function onPointerUp() {
+  cleanup()
+}
+
+function cleanup() {
+  if (!isResizing.value) return
   isResizing.value = false
   document.removeEventListener('pointermove', onPointerMove)
   document.removeEventListener('pointerup', onPointerUp)
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }
+
+onUnmounted(cleanup)
 </script>
 
 <template>
