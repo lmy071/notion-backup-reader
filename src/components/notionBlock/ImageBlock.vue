@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import type { NotionBlock } from '@/types/notion'
+import type { NotionBlock, RichText } from '@/types/notion'
 
 const props = defineProps<{
   block: NotionBlock
 }>()
 
 const url = (props.block as { url?: string }).url ?? ''
+const caption = (props.block as { caption?: RichText[] }).caption ?? []
 </script>
 
 <template>
@@ -20,5 +21,10 @@ const url = (props.block as { url?: string }).url ?? ''
     >
       Image (no URL)
     </div>
+    <p
+      v-if="caption.length > 0"
+      class="text-sm mt-2 text-center"
+      style="color: var(--c-text-tertiary)"
+    >{{ caption.map(c => c.plain_text).join('') }}</p>
   </div>
 </template>

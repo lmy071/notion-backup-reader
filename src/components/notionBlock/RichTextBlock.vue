@@ -42,7 +42,7 @@ function getColorVar(color: string): string {
 
     <!-- Inline code -->
     <code
-      v-else-if="(item as any).code"
+      v-else-if="item.annotations?.code"
       class="px-1 py-0.5 font-mono text-sm rounded"
       :style="{ backgroundColor: 'var(--c-inline-code-bg)', color: 'var(--c-inline-code-text)' }"
     >{{ item.plain_text }}</code>
