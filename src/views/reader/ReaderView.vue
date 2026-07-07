@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { provide, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useReaderLogic } from './useReaderLogic'
 import ResizablePanel from '@/components/common/ResizablePanel.vue'
@@ -12,6 +13,10 @@ const props = defineProps<{
 const route = useRoute()
 const rootPageId = (route.query.root as string) || props.pageId
 const date = (route.query.date as string) || ''
+
+// 向下传递给 ChildPageBlock 用于子页面跳转
+provide('readerRootPageId', computed(() => rootPageId))
+provide('readerDate', computed(() => date))
 
 const {
   page,
