@@ -1,6 +1,8 @@
 /**
  * 并发控制工具 — 队列 + 信号量控制并发数
  * 用于同步时控制对 Notion API 的请求速率
+ *
+ * 注意：使用单一 processLoop 消费队列，避免多实例竞态
  */
 
 export interface ConcurrencyController {
@@ -26,6 +28,7 @@ export function createConcurrencyController(
   let lastRequestTime = 0
   let paused = false
   let cancelled = false
+  let processing = false
   const queue: QueueTask<unknown>[] = []
 
   function updateConfig(newConfig: Partial<ConcurrencyController>) {
@@ -41,43 +44,60 @@ export function createConcurrencyController(
     return new Promise((resolve) => setTimeout(resolve, ms))
   }
 
-  async function processQueue() {
-    while (!cancelled && queue.length > 0) {
-      if (paused) {
-        await delay(100)
-        continue
-      }
+  /**
+   * 单一消费者循环，避免多个 processQueue 实例竞争 queue.shift()。
+   * enqueue 只负责唤醒，不启动新循环。
+   */
+  async function processLoop() {
+    if (processing) return
+    processing = true
 
-      if (running >= config.maxConcurrency) {
-        await delay(50)
-        continue
-      }
-
-      const now = Date.now()
-      const elapsed = now - lastRequestTime
-      if (elapsed < config.minInterval) {
-        await delay(config.minInterval - elapsed)
-        continue
-      }
-
-      const task = queue.shift()
-      if (!task) continue
-
-      running++
-      lastRequestTime = Date.now()
-
-      try {
-        const result = await task.fn()
-        if (!cancelled) {
-          task.resolve(result)
+    try {
+      while (!cancelled) {
+        if (paused) {
+          await delay(100)
+          continue
         }
-      } catch (e) {
-        if (!cancelled) {
-          task.reject(e instanceof Error ? e : new Error(String(e)))
+
+        if (running >= config.maxConcurrency) {
+          await delay(50)
+          continue
         }
-      } finally {
-        running--
+
+        const now = Date.now()
+        const elapsed = now - lastRequestTime
+        if (queue.length > 0 && elapsed < config.minInterval) {
+          await delay(config.minInterval - elapsed)
+          continue
+        }
+
+        if (queue.length === 0) {
+          // 队列为空，退出循环；下次 enqueue 会重新唤醒
+          break
+        }
+
+        const task = queue.shift()
+        if (!task) continue
+
+        running++
+        lastRequestTime = Date.now()
+
+        // 不 await — 让多个 task 并发执行；完成后自减 running + 触发下一轮
+        task.fn()
+          .then((result) => {
+            if (!cancelled) task.resolve(result)
+          })
+          .catch((e) => {
+            if (!cancelled) task.reject(e instanceof Error ? e : new Error(String(e)))
+          })
+          .finally(() => {
+            running--
+            // 可能有空位了，继续处理
+            processLoop()
+          })
       }
+    } finally {
+      processing = false
     }
   }
 
@@ -88,7 +108,7 @@ export function createConcurrencyController(
 
     return new Promise<T>((resolve, reject) => {
       queue.push({ fn, resolve, reject } as QueueTask<unknown>)
-      processQueue()
+      processLoop()
     })
   }
 
@@ -98,7 +118,7 @@ export function createConcurrencyController(
 
   function resume() {
     paused = false
-    processQueue()
+    processLoop()
   }
 
   function cancel() {
@@ -114,6 +134,7 @@ export function createConcurrencyController(
     paused = false
     queue.length = 0
     running = 0
+    processing = false
   }
 
   function getStatus() {

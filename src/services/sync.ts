@@ -367,9 +367,21 @@ export const sync = {
       const tasks = pageIds.map((pageId) => () => syncOnePage(pageId))
       await Promise.all(tasks.map((fn) => currentConcurrency!.enqueue(fn)))
       // Batch save all collected pages under the first pageId as root
+      console.log('[sync] syncPages: saving', collectedPages.length, 'pages, root=', rootPageId, 'cancelled=', cancelled)
       if (collectedPages.length > 0 && !cancelled) {
-        await storage.saveSyncResult(rootPageId!, collectedPages)
+        try {
+          await storage.saveSyncResult(rootPageId!, collectedPages)
+          console.log('[sync] syncPages: save succeeded')
+        } catch (saveErr) {
+          console.error('[sync] syncPages: save failed', saveErr)
+          throw saveErr
+        }
+      } else {
+        console.log('[sync] syncPages: skipping save (pages=', collectedPages.length, 'cancelled=', cancelled, ')')
       }
+    } catch (e) {
+      console.error('[sync] syncPages: error', e)
+      throw e
     } finally {
       currentConcurrency = null
       currentBatch = null
