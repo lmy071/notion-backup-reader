@@ -44,6 +44,7 @@ const componentMap: ComponentMap = {
   column_list: ColumnBlock,
   divider: DividerBlock,
   bookmark: BookmarkBlock,
+  link_preview: BookmarkBlock,
   child_page: ChildPageBlock,
   child_database: ChildPageBlock,
   table: TableBlock,
