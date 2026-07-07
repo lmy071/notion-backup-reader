@@ -1,6 +1,7 @@
 import { ref, computed, watch, type MaybeRefOrGetter, toValue } from 'vue'
 import { storage } from '@/services/storage'
 import type { NotionPage } from '@/types/notion'
+import type { SubPageCard } from '@/types/storage'
 
 export interface HeadingItem {
   id: string
@@ -14,6 +15,8 @@ export function useReaderLogic(
   pageId: MaybeRefOrGetter<string>,
 ) {
   const page = ref<NotionPage | null>(null)
+  const subPages = ref<SubPageCard[]>([])
+  const backlinks = ref<SubPageCard[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const sidebarWidth = ref(280)
@@ -22,15 +25,22 @@ export function useReaderLogic(
     const rid = toValue(rootPageId)
     const d = toValue(date)
     const pid = toValue(pageId)
+    if (!rid || !d || !pid) return
+
     loading.value = true
     error.value = null
     try {
-      const result = await storage.getPage(rid, d, pid)
+      const [result, bl] = await Promise.all([
+        storage.getPage(rid, d, pid),
+        storage.getBacklinks(rid, d, pid),
+      ])
       if (result?.page) {
         page.value = result.page as unknown as NotionPage
+        subPages.value = (result.subPages ?? []) as SubPageCard[]
       } else {
         error.value = '页面未找到'
       }
+      backlinks.value = bl
     } catch (e) {
       error.value = e instanceof Error ? e.message : '加载失败'
     } finally {
@@ -43,7 +53,6 @@ export function useReaderLogic(
     return page.value.blocks
       .filter(b => b.type.startsWith('heading_'))
       .map(b => {
-        // parseBlock has already flattened rich_text to top level
         const richText = (b as { rich_text?: Array<{ plain_text?: string }> }).rich_text ?? []
         const text = richText.map(rt => rt.plain_text ?? '').join('')
         return {
@@ -61,5 +70,5 @@ export function useReaderLogic(
     { immediate: true },
   )
 
-  return { page, loading, error, headings, sidebarWidth, loadPage }
+  return { page, subPages, backlinks, loading, error, headings, sidebarWidth, loadPage }
 }
