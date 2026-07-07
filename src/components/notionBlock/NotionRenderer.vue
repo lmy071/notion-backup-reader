@@ -17,6 +17,7 @@ import ChildPageBlock from './ChildPageBlock.vue'
 import TableBlock from './TableBlock.vue'
 import EmbedBlock from './EmbedBlock.vue'
 import EquationBlock from './EquationBlock.vue'
+import FileBlock from './FileBlock.vue'
 import VideoBlock from './VideoBlock.vue'
 import UnsupportedBlock from './UnsupportedBlock.vue'
 
@@ -50,6 +51,7 @@ const componentMap: ComponentMap = {
   table: TableBlock,
   embed: EmbedBlock,
   equation: EquationBlock,
+  file: FileBlock,
   video: VideoBlock,
 }
 
