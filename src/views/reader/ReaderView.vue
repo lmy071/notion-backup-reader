@@ -39,6 +39,43 @@ function navigateToChild(childPageId: string) {
     query: { root: r, date: d },
   })
 }
+
+// Notion properties 原始数据 → 可读文本
+function formatPropertyValue(val: unknown): string {
+  const v = val as Record<string, unknown>
+  if (!v) return '-'
+  const type = v.type as string
+  switch (type) {
+    case 'title':
+      return ((v.title as Array<{ plain_text: string }>) ?? []).map(t => t.plain_text).join('')
+    case 'rich_text':
+      return ((v.rich_text as Array<{ plain_text: string }>) ?? []).map(t => t.plain_text).join('')
+    case 'select':
+      return (v.select as { name?: string })?.name ?? '-'
+    case 'multi_select':
+      return ((v.multi_select as Array<{ name: string }>) ?? []).map(s => s.name).join(', ')
+    case 'date': {
+      const d = v.date as { start?: string } | null
+      return d?.start ?? '-'
+    }
+    case 'number':
+      return String(v.number ?? '-')
+    case 'checkbox':
+      return v.checkbox ? '✅' : '☐'
+    case 'url':
+      return (v.url as string) ?? '-'
+    case 'email':
+      return (v.email as string) ?? '-'
+    case 'phone_number':
+      return (v.phone_number as string) ?? '-'
+    default:
+      return '-'
+  }
+}
+
+function isSystemProperty(key: string): boolean {
+  return key === 'title'
+}
 </script>
 
 <template>
@@ -141,15 +178,17 @@ function navigateToChild(childPageId: string) {
           </header>
 
           <!-- Notion 属性面板 -->
-          <div v-if="page.properties && Object.keys(page.properties).length > 0" class="mb-8">
+          <div v-if="page.properties && Object.keys(page.properties).filter(k => !isSystemProperty(k)).length > 0" class="mb-8">
             <div
               v-for="(_val, key) in page.properties"
               :key="key"
-              class="flex py-2 text-sm"
-              style="border-bottom: 1px solid var(--c-border-light)"
             >
-              <div class="w-32 shrink-0" style="color: var(--c-text-tertiary)">{{ key }}</div>
-              <div style="color: var(--c-text)">{{ _val }}</div>
+              <template v-if="!isSystemProperty(key)">
+                <div class="flex py-2 text-sm" style="border-bottom: 1px solid var(--c-border)">
+                  <div class="w-32 shrink-0 font-medium" style="color: var(--c-text-secondary)">{{ key }}</div>
+                  <div style="color: var(--c-text)">{{ formatPropertyValue(_val) }}</div>
+                </div>
+              </template>
             </div>
           </div>
 

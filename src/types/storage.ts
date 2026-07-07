@@ -30,4 +30,15 @@ export interface SyncResult {
   page: import('./notion').NotionPage
   children: Record<string, import('./notion').NotionPage>
   databases: Record<string, import('./notion').NotionDatabase>
+  subPages: SubPageCard[]
+}
+
+export interface SubPageCard {
+  pageId: string
+  title: string
+  icon: string | null
+  coverUrl: string | null
+  blockCount: number
+  childCount: number
+  direction: 'child' | 'backlink'
 }

@@ -57,6 +57,14 @@ export const storage = {
     return response.json()
   },
 
+  // ========== 反向链接 ==========
+
+  async getBacklinks(rootPageId: string, date: string, pageId: string): Promise<import('@/types/storage').SubPageCard[]> {
+    const response = await fetch(`${API_BASE}/backlinks/${rootPageId}/${date}/${pageId}`)
+    if (!response.ok) return []
+    return response.json()
+  },
+
   // ========== 保存同步结果（批量） ==========
 
   async saveSyncResult(

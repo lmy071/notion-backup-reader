@@ -156,7 +156,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
-    return jsonResponse({ page, children, databases: {} })
+    return jsonResponse({ page, children, databases: {}, subPages: extractSubPageCards(page) })
   }
 
   // ── GET /api/storage/batch-index/:rootPageId/:date
@@ -246,6 +246,15 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     return jsonResponse({ ok: true })
+  }
+
+  // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId
+  if (method === 'GET' && path.startsWith('/api/storage/backlinks/')) {
+    if (segments.length < 7) return errorResponse('Invalid path', 400)
+    const rootPageId = segments[3]
+    const date = segments[4]
+    const pageId = segments.slice(5).join('/')
+    return jsonResponse(await buildBacklinks(rootPageId, date, pageId))
   }
 
   // ── GET /api/storage/versions/:rootPageId
@@ -501,6 +510,106 @@ async function fetchNestedChildren(
   }
 
   await Promise.all(childFetchTasks)
+}
+
+// ── Sub-page card extraction ───────────────────────────────────
+
+interface SubPageCard {
+  pageId: string
+  title: string
+  icon: string | null
+  coverUrl: string | null
+  blockCount: number
+  childCount: number
+  direction: 'child'
+}
+
+/** Walk a parsed page block tree and extract sub-page summaries. */
+function extractSubPageCards(page: Record<string, unknown>): SubPageCard[] {
+  const cards: SubPageCard[] = []
+
+  function walk(blocks: unknown[]): void {
+    if (!Array.isArray(blocks)) return
+    for (const b of blocks) {
+      const block = b as Record<string, unknown>
+      const type = block.type as string
+      if (type === 'child_page') {
+        cards.push({
+          pageId: block.id as string,
+          title: (block.title as string) || '无标题',
+          icon: (block.icon as string) ?? null,
+          coverUrl: (block.coverUrl as string) ?? null,
+          blockCount: (block.blockCount as number) ?? 0,
+          childCount: (block.childCount as number) ?? 0,
+          direction: 'child',
+        })
+      }
+      if (block.children && Array.isArray(block.children)) {
+        walk(block.children as unknown[])
+      }
+    }
+  }
+
+  walk((page.blocks || []) as unknown[])
+  return cards
+}
+
+/** Scan all pages in the same batch for child_page references to targetPageId. */
+async function buildBacklinks(
+  rootPageId: string,
+  date: string,
+  targetPageId: string,
+): Promise<SubPageCard[]> {
+  const batchDir = join(JSON_DIR, rootPageId, date)
+  if (!existsSync(batchDir)) return []
+
+  const cards: SubPageCard[] = []
+  let pageDirs: string[]
+  try {
+    pageDirs = await readdir(batchDir)
+  } catch {
+    return []
+  }
+
+  for (const dir of pageDirs) {
+    if (dir === 'index.json') continue
+    const pageFile = join(batchDir, dir, 'page.json')
+    const page = await readJsonSafe(pageFile) as Record<string, unknown> | null
+    if (!page || (page.pageId as string) === targetPageId) continue
+
+    const blocks = page.blocks as unknown[] | undefined
+    if (!Array.isArray(blocks)) continue
+
+    let found = false
+    function walk(b: unknown[]): void {
+      for (const item of b) {
+        const block = item as Record<string, unknown>
+        if (block.type === 'child_page' && (block.id as string) === targetPageId) {
+          found = true
+          return
+        }
+        if (block.children && Array.isArray(block.children)) {
+          walk(block.children as unknown[])
+          if (found) return
+        }
+      }
+    }
+    walk(blocks)
+
+    if (found) {
+      cards.push({
+        pageId: page.pageId as string,
+        title: (page.title as string) || '无标题',
+        icon: (page.icon as string) ?? null,
+        coverUrl: (page.cover as Record<string, unknown>)?.['url'] as string ?? null,
+        blockCount: Array.isArray(blocks) ? blocks.length : 0,
+        childCount: 0,
+        direction: 'child' as const,
+      })
+    }
+  }
+
+  return cards
 }
 
 async function rmRecursive(dirPath: string): Promise<void> {
