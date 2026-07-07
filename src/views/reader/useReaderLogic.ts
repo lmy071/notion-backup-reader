@@ -1,4 +1,4 @@
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, type MaybeRefOrGetter, toValue } from 'vue'
 import { storage } from '@/services/storage'
 import type { NotionPage } from '@/types/notion'
 
@@ -8,17 +8,24 @@ export interface HeadingItem {
   text: string
 }
 
-export function useReaderLogic(rootPageId: string, date: string, pageId: string) {
+export function useReaderLogic(
+  rootPageId: MaybeRefOrGetter<string>,
+  date: MaybeRefOrGetter<string>,
+  pageId: MaybeRefOrGetter<string>,
+) {
   const page = ref<NotionPage | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
   const sidebarWidth = ref(280)
 
   async function loadPage() {
+    const rid = toValue(rootPageId)
+    const d = toValue(date)
+    const pid = toValue(pageId)
     loading.value = true
     error.value = null
     try {
-      const result = await storage.getPage(rootPageId, date, pageId)
+      const result = await storage.getPage(rid, d, pid)
       if (result?.page) {
         page.value = result.page as unknown as NotionPage
       } else {
@@ -47,7 +54,12 @@ export function useReaderLogic(rootPageId: string, date: string, pageId: string)
       })
   })
 
-  watch([() => rootPageId, () => date, () => pageId], loadPage, { immediate: true })
+  // 监听所有参数变化（含路由复用同一组件时 params/query 变更）
+  watch(
+    () => [toValue(rootPageId), toValue(date), toValue(pageId)],
+    () => { loadPage() },
+    { immediate: true },
+  )
 
   return { page, loading, error, headings, sidebarWidth, loadPage }
 }
