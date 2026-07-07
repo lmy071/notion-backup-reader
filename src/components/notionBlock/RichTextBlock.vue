@@ -5,6 +5,9 @@ defineProps<{
   richText: RichText[]
 }>()
 
+// 注意：parseRichText 已将 annotations 字段扁平化到顶层
+// item.code / item.bold / item.italic / ... 直接可用
+
 function getColorClass(color: string): string {
   const colorMap: Record<string, string> = {
     default: '',
@@ -41,40 +44,40 @@ function getColorClass(color: string): string {
 
     <!-- Inline code -->
     <code
-      v-else-if="item.annotations.code"
-      :class="getColorClass(item.annotations.color)"
+      v-else-if="(item as any).code"
+      :class="getColorClass((item as any).color)"
       class="px-1 py-0.5 bg-red-50 text-red-500 font-mono text-sm rounded"
     >{{ item.plain_text }}</code>
 
     <!-- Link -->
     <a
-      v-else-if="item.text?.link?.url"
-      :href="item.text.link.url"
+      v-else-if="(item as any).link?.url"
+      :href="(item as any).link.url"
       target="_blank"
       rel="noopener noreferrer"
-      :class="getColorClass(item.annotations.color)"
+      :class="getColorClass((item as any).color)"
       class="underline decoration-blue-400 text-blue-600 hover:text-blue-800"
       :style="{
-        fontWeight: item.annotations.bold ? 'bold' : 'normal',
-        fontStyle: item.annotations.italic ? 'italic' : 'normal',
-        textDecoration: [
+        fontWeight: (item as any).bold ? 'bold' : 'normal',
+        fontStyle: (item as any).italic ? 'italic' : 'normal',
+        textDecoration: ([
           'underline',
-          item.annotations.strikethrough ? 'line-through' : '',
-        ].filter(Boolean).join(' '),
+          (item as any).strikethrough ? 'line-through' : '',
+        ] as string[]).filter(Boolean).join(' '),
       }"
     >{{ item.plain_text }}</a>
 
     <!-- Plain text with annotations -->
     <span
       v-else
-      :class="getColorClass(item.annotations.color)"
+      :class="getColorClass((item as any).color)"
       :style="{
-        fontWeight: item.annotations.bold ? 'bold' : 'normal',
-        fontStyle: item.annotations.italic ? 'italic' : 'normal',
-        textDecoration: [
-          item.annotations.underline ? 'underline' : '',
-          item.annotations.strikethrough ? 'line-through' : '',
-        ].filter(Boolean).join(' ') || 'none',
+        fontWeight: (item as any).bold ? 'bold' : 'normal',
+        fontStyle: (item as any).italic ? 'italic' : 'normal',
+        textDecoration: ([
+          (item as any).underline ? 'underline' : '',
+          (item as any).strikethrough ? 'line-through' : '',
+        ] as string[]).filter(Boolean).join(' ') || 'none',
       }"
     >{{ item.plain_text }}</span>
   </template>
