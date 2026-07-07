@@ -2,6 +2,7 @@ export interface RawBlock {
   id: string
   type: string
   has_children: boolean
+  children?: RawBlock[]
   paragraph?: { rich_text: RawRichText[] }
   heading_1?: { rich_text: RawRichText[] }
   heading_2?: { rich_text: RawRichText[] }

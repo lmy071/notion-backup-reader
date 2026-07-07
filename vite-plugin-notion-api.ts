@@ -457,7 +457,50 @@ async function fetchBlocks(
     cursor = data.next_cursor as string | undefined
   }
 
+  // 递归拉取嵌套子块（toggle、column_list 等的 children）
+  await fetchNestedChildren(allBlocks, headers)
+
   return allBlocks
+}
+
+const NESTED_BLOCK_TYPES = new Set([
+  'toggle',
+  'column_list',
+  'column',
+  'bulleted_list_item',
+  'numbered_list_item',
+  'synced_block',
+  'table',
+])
+
+/** 递归拉取 has_children 块的嵌套内容，填充到 block.children */
+async function fetchNestedChildren(
+  blocks: unknown[],
+  headers: Record<string, string>,
+): Promise<void> {
+  if (!blocks || blocks.length === 0) return
+
+  const childFetchTasks: Promise<void>[] = []
+
+  for (const block of blocks) {
+    const b = block as Record<string, unknown>
+    if (b.has_children && !b.children) {
+      const type = b.type as string
+      const id = b.id as string
+
+      if (!NESTED_BLOCK_TYPES.has(type)) continue
+
+      childFetchTasks.push(
+        fetchBlocks(id, headers).then((nestedBlocks) => {
+          (b as Record<string, unknown>).children = nestedBlocks
+          // 继续递归：嵌套子块可能还有更深层的子块
+          return fetchNestedChildren(nestedBlocks, headers)
+        }),
+      )
+    }
+  }
+
+  await Promise.all(childFetchTasks)
 }
 
 async function rmRecursive(dirPath: string): Promise<void> {

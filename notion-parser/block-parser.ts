@@ -145,6 +145,11 @@ export function parseBlock(raw: RawBlock): NotionBlock {
       break
   }
 
+  // 递归解析嵌套子块（toggle/column_list 等由 Vite 中间件的 fetchNestedChildren 预先拉取）
+  if (raw.children && raw.children.length > 0) {
+    block.children = parseBlocks(raw.children)
+  }
+
   return block
 }
 
