@@ -79,7 +79,7 @@ export function parseBlock(raw: RawBlock): NotionBlock {
     case 'file': {
       const d = raw.file
       if (d) {
-        block.url = d.external?.url ?? ''
+        block.url = d.external?.url ?? d.file?.url ?? ''
         block.name = d.name ?? ''
       }
       break
