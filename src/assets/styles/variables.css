@@ -79,9 +79,6 @@
   --c-file-bg:              #f9fafb;
   --c-file-border:          #e5e7eb;
   --c-file-download:        #2563eb;
-  --c-unsupported-bg:       #fffbeb;
-  --c-unsupported-border:   #fde68a;
-  --c-unsupported-text:     #92400e;
   --c-inline-code-bg:       #fef2f2;
   --c-inline-code-text:     #ef4444;
   --c-mention-bg:           #f3f4f6;
@@ -172,9 +169,6 @@ html.dark,
   --c-file-bg:              #1d2030;
   --c-file-border:          #2d3044;
   --c-file-download:        #60a5fa;
-  --c-unsupported-bg:       #422006;
-  --c-unsupported-border:   #713f12;
-  --c-unsupported-text:     #fde68a;
   --c-inline-code-bg:       #450a0a;
   --c-inline-code-text:     #fca5a5;
   --c-mention-bg:           #1d2030;
