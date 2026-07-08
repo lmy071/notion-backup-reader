@@ -2,22 +2,17 @@ export interface RichText {
   type: 'text' | 'mention' | 'equation'
   plain_text: string
   href: string | null
-  annotations: {
-    bold: boolean
-    italic: boolean
-    strikethrough: boolean
-    underline: boolean
-    code: boolean
-    color: string
-  }
-  text?: {
-    content: string
-    link: { url: string } | null
-  }
+  /** Annotations are flattened by the parser for ergonomic template access */
+  bold: boolean
+  italic: boolean
+  strikethrough: boolean
+  underline: boolean
+  code: boolean
+  color: string
+  content: string
+  link: { url: string } | null
   mention?: Record<string, unknown>
-  equation?: {
-    expression: string
-  }
+  equation?: string
 }
 
 export interface NotionBlock {

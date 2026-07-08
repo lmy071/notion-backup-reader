@@ -32,7 +32,7 @@ function getColorVar(color: string): string {
 </script>
 
 <template>
-  <template v-for="(item, idx) in richText" :key="idx">
+  <template v-for="(item, idx) in richText" :key="idx" as="span">
     <!-- Mention -->
     <span
       v-if="item.type === 'mention'"
@@ -42,40 +42,44 @@ function getColorVar(color: string): string {
 
     <!-- Inline code -->
     <code
-      v-else-if="item.annotations?.code"
+      v-else-if="item.code"
       class="px-1 py-0.5 font-mono text-sm rounded"
       :style="{ backgroundColor: 'var(--c-inline-code-bg)', color: 'var(--c-inline-code-text)' }"
     >{{ item.plain_text }}</code>
 
-    <!-- Link -->
+    <!-- Link (flat link field from parser) -->
     <a
-      v-else-if="(item as any).link?.url"
-      :href="(item as any).link.url"
+      v-else-if="item.link?.url"
+      :href="item.link.url"
       target="_blank"
       rel="noopener noreferrer"
       :style="{
         color: 'var(--c-link)',
-        fontWeight: (item as any).bold ? 'bold' : 'normal',
-        fontStyle: (item as any).italic ? 'italic' : 'normal',
+        fontWeight: item.bold ? 'bold' : 'normal',
+        fontStyle: item.italic ? 'italic' : 'normal',
         textDecoration: [
-          (item as any).strikethrough ? 'line-through' : '',
+          item.strikethrough ? 'line-through' : '',
           'underline',
         ].filter(Boolean).join(' '),
       }"
     >{{ item.plain_text }}</a>
 
-    <!-- Plain text with annotations -->
+    <!-- Plain text (flat bold/italic/underline/strikethrough/color from parser) -->
     <span
       v-else
       :style="{
-        color: getColorVar((item as any).color) || 'var(--c-text)',
-        fontWeight: (item as any).bold ? 'bold' : 'normal',
-        fontStyle: (item as any).italic ? 'italic' : 'normal',
+        color: item.color && item.color !== 'default'
+          ? getColorVar(item.color)
+          : 'var(--c-text)',
+        fontWeight: item.bold ? 'bold' : 'normal',
+        fontStyle: item.italic ? 'italic' : 'normal',
         textDecoration: [
-          (item as any).underline ? 'underline' : '',
-          (item as any).strikethrough ? 'line-through' : '',
+          item.underline ? 'underline' : '',
+          item.strikethrough ? 'line-through' : '',
         ].filter(Boolean).join(' ') || 'none',
-        backgroundColor: ((item as any).color || '').endsWith('_background') ? getColorVar((item as any).color) : '',
+        backgroundColor: (item.color || '').endsWith('_background')
+          ? getColorVar(item.color)
+          : 'transparent',
       }"
     >{{ item.plain_text }}</span>
   </template>
