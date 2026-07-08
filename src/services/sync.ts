@@ -122,22 +122,21 @@ function extractChildren(blocks: NotionBlock[]): ChildReference[] {
 }
 
 async function syncChildren(children: ChildReference[]): Promise<void> {
-  if (!currentConcurrency || cancelled) return
+  if (cancelled) return
 
-  const tasks: Array<() => Promise<void>> = []
-
+  // IMPORTANT: children run sequentially within the parent's slot.
+  // We must NOT enqueue them into currentConcurrency — that creates a deadlock:
+  // all slots are held by parent pages awaiting children, but children need
+  // a slot to start. Sequential execution avoids this classic deadlock.
   for (const child of children) {
+    if (cancelled) break
     if (visitedPages.has(child.blockId)) continue
 
     if (child.type === 'child_page') {
-      tasks.push(() => syncOnePage(child.blockId, child.title))
+      await syncOnePage(child.blockId, child.title)
     } else if (child.type === 'child_database') {
-      tasks.push(() => syncChildDatabasePages(child.blockId))
+      await syncChildDatabasePages(child.blockId)
     }
-  }
-
-  if (tasks.length > 0) {
-    await Promise.all(tasks.map((fn) => currentConcurrency!.enqueue(fn)))
   }
 }
 
