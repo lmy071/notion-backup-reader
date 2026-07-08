@@ -16,8 +16,10 @@ const sizeMap: Record<number, string> = { 1: 'var(--fs-3xl)', 2: 'var(--fs-2xl)'
 <template>
   <component
     :is="tag"
-    class="font-bold mt-6 mb-2"
-    :style="{ fontSize: sizeMap[level] || 'var(--fs-xl)', color: 'var(--c-text-primary)' }"
+    :id="block.id"
+    :data-block-id="block.id"
+    class="font-bold mt-6 mb-2 scroll-mt-24"
+    :style="{ fontSize: sizeMap[level] || 'var(--fs-xl)', color: 'var(--c-text-primary)', scrollMarginTop: '80px' }"
   >
     <RichTextBlock :rich-text="(richText as any)" />
   </component>

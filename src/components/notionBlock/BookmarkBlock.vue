@@ -23,7 +23,7 @@ function getHostname(rawUrl: string): string {
     :href="url"
     target="_blank"
     rel="noopener noreferrer"
-    class="block my-4 p-4 rounded-lg no-underline transition-colors"
+    class="block my-4 p-4 rounded-lg no-underline transition-colors bookmark-link"
     style="background-color: var(--c-bookmark-bg); border: 1px solid var(--c-bookmark-border)"
   >
     <p v-if="caption.length > 0" class="text-sm font-medium truncate" style="color: var(--c-text)">

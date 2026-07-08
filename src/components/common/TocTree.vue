@@ -35,10 +35,18 @@ function buildTree(items: HeadingItem[]): TocNode[] {
 const tree = computed(() => buildTree(props.headings))
 
 function scrollTo(id: string) {
-  const el = document.getElementById(id) || document.querySelector(`[data-block-id="${id}"]`)
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  // Try id first (getElementById), then data-block-id
+  let el: HTMLElement | null
+  try {
+    el = document.getElementById(id)
+  } catch {
+    el = null
   }
+  if (!el) {
+    el = document.querySelector(`[data-block-id="${CSS.escape(id)}"]`) as HTMLElement | null
+  }
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 </script>
 
