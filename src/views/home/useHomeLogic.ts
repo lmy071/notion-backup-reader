@@ -8,6 +8,8 @@ export interface RootGroup {
   availableDates: string[]
   selectedDate: string
   pages: PageSummary[]
+  /** The root page card itself (pageId === rootPageId) */
+  rootPage: PageSummary | null
 }
 
 export function useHomeLogic() {
@@ -38,7 +40,7 @@ export function useHomeLogic() {
     return batches[0]?.pages[0]?.title || rootId
   }
 
-  // 最终展示的根分组列表（每个 root 只展示选中日期的批次）
+  // 最终展示的根分组列表（每个 root 只显示根页面本身一张卡片）
   const roots = computed<RootGroup[]>(() => {
     const datesByRoot = allDatesByRoot.value
     return Object.keys(datesByRoot).map(rootId => {
@@ -49,12 +51,18 @@ export function useHomeLogic() {
         b => b.rootPageId === rootId && b.date === sel,
       )
 
+      const allPages = batch?.pages ?? []
+
+      // 根页面 = pages 中 pageId === rootPageId 的那条；兜底取第一条
+      const rootPage = allPages.find(p => p.pageId === rootId) ?? allPages[0] ?? null
+
       return {
         rootPageId: rootId,
         title: getRootTitle(rootId),
         availableDates,
         selectedDate: sel,
-        pages: batch?.pages ?? [],
+        pages: allPages,
+        rootPage,
       }
     })
   })
