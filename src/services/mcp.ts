@@ -59,6 +59,10 @@ export function createMcpClient(apiKey: string) {
       return mcpRequest<FetchDatabaseResponse>('fetch-database', { databaseId }, apiKey)
     },
 
+    async fetchDatabaseSchema(databaseId: string): Promise<{ database: Record<string, unknown> }> {
+      return mcpRequest<{ database: Record<string, unknown> }>('fetch-database-schema', { databaseId }, apiKey)
+    },
+
     async testConnection(): Promise<{ ok: boolean; message: string }> {
       return mcpRequest('test-connection', {}, apiKey)
     },

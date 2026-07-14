@@ -15,6 +15,7 @@ import DividerBlock from './DividerBlock.vue'
 import BookmarkBlock from './BookmarkBlock.vue'
 import ChildPageBlock from './ChildPageBlock.vue'
 import TableBlock from './TableBlock.vue'
+import DatabaseBlock from './DatabaseBlock.vue'
 import EmbedBlock from './EmbedBlock.vue'
 import EquationBlock from './EquationBlock.vue'
 import FileBlock from './FileBlock.vue'
@@ -47,7 +48,7 @@ const componentMap: ComponentMap = {
   bookmark: BookmarkBlock,
   link_preview: BookmarkBlock,
   child_page: ChildPageBlock,
-  child_database: ChildPageBlock,
+  child_database: DatabaseBlock,
   table: TableBlock,
   embed: EmbedBlock,
   equation: EquationBlock,

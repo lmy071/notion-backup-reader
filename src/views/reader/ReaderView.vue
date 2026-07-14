@@ -24,10 +24,13 @@ const {
   error,
   subPages,
   backlinks,
+  pageDatabases,
   headings,
   sidebarWidth,
   loadPage,
 } = useReaderLogic(rootPageId, date, pageId)
+
+provide('pageDatabases', pageDatabases)
 
 function navigateToChild(childPageId: string) {
   const r = rootPageId.value

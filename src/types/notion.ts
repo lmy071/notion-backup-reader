@@ -37,14 +37,46 @@ export interface NotionPage {
   blocks: NotionBlock[]
 }
 
+export interface RawDatabaseProperties {
+  [columnName: string]: DatabasePropertyConfig
+}
+
+export interface DatabasePropertyConfig {
+  id: string
+  name: string
+  type: string
+  [key: string]: unknown
+}
+
 export interface NotionDatabase {
-  databaseId: string
+  id: string
   title: string
-  properties: Record<string, unknown>
+  properties: RawDatabaseProperties
   rows: NotionDatabaseRow[]
 }
 
 export interface NotionDatabaseRow {
   id: string
-  properties: Record<string, unknown>
+  properties: Record<string, DatabasePropertyValue>
+}
+
+export interface DatabasePropertyValue {
+  type: string
+  title?: Array<{ plain_text: string }>
+  rich_text?: Array<{ plain_text: string }>
+  select?: { name: string; color?: string }
+  multi_select?: Array<{ name: string; color?: string }>
+  date?: { start: string; end?: string }
+  number?: number
+  checkbox?: boolean
+  url?: string
+  email?: string
+  phone_number?: string
+  status?: { name: string; color?: string }
+  formula?: { type: string; string?: string; number?: number; boolean?: boolean }
+  people?: Array<{ name?: string; person?: { email?: string } }>
+  files?: Array<{ name: string; type: string; external?: { url: string }; file?: { url: string } }>
+  created_time?: string
+  last_edited_time?: string
+  [key: string]: unknown
 }

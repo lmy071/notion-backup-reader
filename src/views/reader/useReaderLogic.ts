@@ -1,6 +1,6 @@
 import { ref, computed, watch, type MaybeRefOrGetter, toValue } from 'vue'
 import { storage } from '@/services/storage'
-import type { NotionPage } from '@/types/notion'
+import type { NotionPage, NotionDatabase } from '@/types/notion'
 import type { SubPageCard } from '@/types/storage'
 
 export interface HeadingItem {
@@ -17,6 +17,7 @@ export function useReaderLogic(
   const page = ref<NotionPage | null>(null)
   const subPages = ref<SubPageCard[]>([])
   const backlinks = ref<SubPageCard[]>([])
+  const pageDatabases = ref<Record<string, NotionDatabase>>({})
   const loading = ref(false)
   const error = ref<string | null>(null)
   const sidebarWidth = ref(280)
@@ -37,6 +38,7 @@ export function useReaderLogic(
       if (result?.page) {
         page.value = result.page as unknown as NotionPage
         subPages.value = (result.subPages ?? []) as SubPageCard[]
+        pageDatabases.value = (result.databases ?? {}) as Record<string, NotionDatabase>
       } else {
         error.value = '页面未找到'
       }
@@ -70,5 +72,5 @@ export function useReaderLogic(
     { immediate: true },
   )
 
-  return { page, subPages, backlinks, loading, error, headings, sidebarWidth, loadPage }
+  return { page, subPages, backlinks, pageDatabases, loading, error, headings, sidebarWidth, loadPage }
 }

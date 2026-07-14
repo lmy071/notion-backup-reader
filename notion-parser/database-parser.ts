@@ -1,4 +1,4 @@
-import type { NotionDatabase, NotionDatabaseRow } from '../src/types/notion'
+import type { NotionDatabase, NotionDatabaseRow, RawDatabaseProperties, DatabasePropertyValue } from '../src/types/notion'
 
 interface RawDatabase {
   id: string
@@ -13,7 +13,7 @@ interface RawDatabase {
 export function parseDatabaseRow(raw: Record<string, unknown>): NotionDatabaseRow {
   return {
     id: (raw.id as string) ?? '',
-    properties: (raw.properties as Record<string, unknown>) ?? (raw as Record<string, unknown>),
+    properties: (raw.properties as Record<string, DatabasePropertyValue>) ?? {},
   }
 }
 
@@ -24,7 +24,7 @@ export function parseDatabase(raw: RawDatabase): NotionDatabase {
   return {
     id: raw.id ?? '',
     title: raw.title ?? '',
-    properties: raw.properties ?? {},
+    properties: raw.properties as RawDatabaseProperties ?? {},
     rows: (raw.results ?? []).map((row) => parseDatabaseRow(row as Record<string, unknown>)),
   }
 }

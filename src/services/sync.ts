@@ -1,9 +1,9 @@
-import type { NotionBlock, NotionPage } from '@/types/notion'
+import type { NotionBlock, NotionPage, NotionDatabase } from '@/types/notion'
 import { createMcpClient, type FetchPageResponse } from './mcp'
 import { storage } from './storage'
 import { logger } from './logger'
 import { createConcurrencyController } from './concurrency'
-import { parsePage } from '../../notion-parser/index'
+import { parsePage, parseDatabase } from '../../notion-parser/index'
 import type { RawBlock, RawPage } from '../../notion-parser/types'
 
 // ── Progress types ─────────────────────────────────────────────────
@@ -34,7 +34,7 @@ const visitedPages = new Set<string>()
 type McpClient = ReturnType<typeof createMcpClient>
 let mcpClient: McpClient | null = null
 let rootPageId: string | null = null
-let collectedPages: Array<{ page: NotionPage }> = []
+let collectedPages: Array<{ page: NotionPage; databases?: Array<{ databaseId: string; database: NotionDatabase }> }> = []
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -243,8 +243,37 @@ async function syncOnePage(
 
     const parsed = parsePage(rawPage, rawBlocks)
 
+    // ── Scan for child_database blocks and fetch database data ──
+    const databases: Array<{ databaseId: string; database: NotionDatabase }> = []
+    for (const rawBlock of rawBlocks) {
+      if (rawBlock.type === 'child_database') {
+        const dbBlockId = rawBlock.id
+        const dbTitle = rawBlock.child_database?.title || dbBlockId
+        try {
+          logger.info({ action: 'db_fetch', pageId, dbId: dbBlockId, message: `开始获取数据库 schema: ${dbTitle}` })
+          const schemaRes = await client.fetchDatabaseSchema(dbBlockId)
+          const schema = schemaRes.database as Record<string, unknown>
+
+          logger.info({ action: 'db_fetch', pageId, dbId: dbBlockId, message: `开始查询数据库: ${dbTitle}` })
+          const dbRes = await client.fetchDatabase(dbBlockId)
+
+          const db = parseDatabase({
+            id: dbBlockId,
+            title: (schema as { title?: Array<{ plain_text: string }> })?.title?.map(t => t.plain_text ?? '').join('') ?? dbTitle,
+            properties: (schema as { properties?: Record<string, unknown> }).properties ?? {},
+            results: (dbRes.results ?? []) as unknown[],
+          })
+          databases.push({ databaseId: dbBlockId, database: db })
+          logger.info({ action: 'db_fetch', pageId, dbId: dbBlockId, message: `数据库获取完成 (${db.rows.length} 行)` })
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e)
+          logger.warn({ action: 'db_fetch', pageId, dbId: dbBlockId, message: `数据库获取失败: ${errMsg}` })
+        }
+      }
+    }
+
     // ── Collect for batch save (instead of saving individually) ──
-    collectedPages.push({ page: parsed })
+    collectedPages.push({ page: parsed, databases: databases.length > 0 ? databases : undefined })
 
     updateTask(pageId, { progress: 80 })
 

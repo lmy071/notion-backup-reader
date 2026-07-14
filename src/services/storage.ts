@@ -65,11 +65,19 @@ export const storage = {
     return response.json()
   },
 
+  // ========== 数据库 ==========
+
+  async getDatabase(rootPageId: string, date: string, pageId: string, databaseId: string): Promise<NotionDatabase | null> {
+    const response = await fetch(`${API_BASE}/database/${rootPageId}/${date}/${pageId}/${databaseId}`)
+    if (!response.ok) return null
+    return response.json()
+  },
+
   // ========== 保存同步结果（批量） ==========
 
   async saveSyncResult(
     rootPageId: string,
-    pages: Array<{ page: NotionPage; children?: Record<string, NotionPage> }>,
+    pages: Array<{ page: NotionPage; children?: Record<string, NotionPage>; databases?: Array<{ databaseId: string; database: NotionDatabase }> }>,
   ): Promise<void> {
     const response = await fetch(`${API_BASE}/save`, {
       method: 'POST',

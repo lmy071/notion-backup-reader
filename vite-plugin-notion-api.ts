@@ -156,7 +156,19 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
-    return jsonResponse({ page, children, databases: {}, subPages: extractSubPageCards(page) })
+    // Load embedded databases
+    const databases: Record<string, unknown> = {}
+    const databasesDir = join(pageDir, 'databases')
+    if (existsSync(databasesDir)) {
+      const dbFiles = await readdir(databasesDir)
+      for (const dbFile of dbFiles) {
+        const dbId = dbFile.replace('.json', '')
+        const dbData = await readJsonSafe(join(databasesDir, dbFile))
+        if (dbData) databases[dbId] = dbData
+      }
+    }
+
+    return jsonResponse({ page, children, databases, subPages: extractSubPageCards(page) })
   }
 
   // ── GET /api/storage/batch-index/:rootPageId/:date
@@ -171,7 +183,7 @@ async function handleRequest(req: Request): Promise<Response> {
   }
 
   // ── POST /api/storage/save
-  // body: { rootPageId, pages: [{ page, children? }] }
+  // body: { rootPageId, pages: [{ page, children?, databases? }] }
   if (method === 'POST' && path === '/api/storage/save') {
     const body = (await req.json()) as Record<string, unknown>
     const rootPageId = body.rootPageId as string
@@ -204,6 +216,21 @@ async function handleRequest(req: Request): Promise<Response> {
         }
       }
 
+      // Save databases
+      const databases = entry.databases as Array<Record<string, unknown>> | undefined
+      const databaseIds: string[] = []
+      if (databases && databases.length > 0) {
+        const databasesDir = join(pageDir, 'databases')
+        for (const dbItem of databases) {
+          const dbId = dbItem.databaseId as string
+          const db = dbItem.database as Record<string, unknown>
+          if (dbId && db) {
+            await writeJson(join(databasesDir, `${dbId}.json`), db)
+            databaseIds.push(dbId)
+          }
+        }
+      }
+
       // Save meta.json
       const blocks = (page as { blocks?: unknown[] })?.blocks
       const meta: Record<string, unknown> = {
@@ -213,7 +240,7 @@ async function handleRequest(req: Request): Promise<Response> {
         syncedAt: new Date().toISOString(),
         blockCount: Array.isArray(blocks) ? blocks.length : 0,
         childPages: childrenEntries,
-        databases: [],
+        databases: databaseIds,
         errors: [],
       }
       await writeJson(join(pageDir, 'meta.json'), meta)
@@ -246,6 +273,21 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     return jsonResponse({ ok: true })
+  }
+
+  // ── GET /api/storage/database/:rootPageId/:date/:pageId/:databaseId
+  if (method === 'GET' && path.startsWith('/api/storage/database/')) {
+    // segments = ['api','storage','database','rootPageId','date','pageId','databaseId']
+    if (segments.length < 7) return errorResponse('Invalid path', 400)
+    const rootPageId = segments[3]
+    const date = segments[4]
+    const pageId = segments[5]
+    const databaseId = segments[6]
+
+    const dbPath = join(JSON_DIR, rootPageId, date, pageId, 'databases', `${databaseId}.json`)
+    const db = await readJsonSafe(dbPath)
+    if (!db) return jsonResponse(null, 404)
+    return jsonResponse(db)
   }
 
   // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId
@@ -430,6 +472,20 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       }
       const data = await res.json() as Record<string, unknown>
       return jsonResponse({ database: data, results: (data as { results?: unknown }).results || [] })
+    }
+
+    // ── POST /api/notion/fetch-database-schema
+    if (method === 'POST' && path === '/api/notion/fetch-database-schema') {
+      const body = await req.json() as { databaseId: string }
+      const { databaseId } = body
+
+      const res = await fetch(`${NOTION_API_BASE}/databases/${databaseId}`, { headers: commonHeaders })
+      if (!res.ok) {
+        const err = await res.text()
+        return jsonResponse({ error: `Failed to fetch database schema: ${res.status} ${err}` }, 502)
+      }
+      const data = await res.json() as Record<string, unknown>
+      return jsonResponse({ database: data })
     }
 
     return errorResponse(`Unknown Notion proxy endpoint: ${path}`, 404)
