@@ -133,7 +133,7 @@ async function syncChildren(children: ChildReference[]): Promise<void> {
     if (visitedPages.has(child.blockId)) continue
 
     if (child.type === 'child_page') {
-      await syncOnePage(child.blockId, child.title)
+      await syncOnePage(child.blockId, child.title, true)
     } else if (child.type === 'child_database') {
       await syncChildDatabasePages(child.blockId)
     }
@@ -157,6 +157,7 @@ async function syncChildDatabasePages(databaseId: string): Promise<void> {
         syncOnePage(
           p.id as string,
           extractTitleFromPageMap(p, p.id as string),
+          true,
         ),
       )
 
@@ -202,6 +203,7 @@ function updateLocalHistory(pageId: string, title: string): void {
 async function syncOnePage(
   pageId: string,
   initialTitle?: string,
+  isChild = false,
 ): Promise<void> {
   if (cancelled) return
   if (visitedPages.has(pageId)) return
@@ -269,7 +271,9 @@ async function syncOnePage(
       duration,
     })
 
-    updateLocalHistory(pageId, title)
+    if (!isChild) {
+      updateLocalHistory(pageId, title)
+    }
     updateTask(pageId, { status: 'done', progress: 100 })
 
     // ── Recursively sync children ──

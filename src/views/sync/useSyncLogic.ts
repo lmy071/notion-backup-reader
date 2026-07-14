@@ -11,7 +11,10 @@ export function useSyncLogic() {
   const overallProgress = ref(0)
   const logMessages = ref<string[]>([])
   const taskMap = ref<Map<string, { title: string; status: string; progress: number }>>(new Map())
-  const { items: historyList, addOrUpdate } = usePageHistory()
+  const { items: historyList, addOrUpdate, cleanupStaleEntries } = usePageHistory()
+
+  // 清理 localStorage 中历史遗留的子页面条目
+  cleanupStaleEntries()
 
   /** 从 Notion 页面链接中提取 page ID */
   function extractId(raw: string): string | null {
