@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch, nextTick } from 'vue'
 import { useSyncLogic } from './useSyncLogic'
 
 const {
@@ -13,6 +14,23 @@ const {
   clearSelection,
   startBatchSync,
 } = useSyncLogic()
+
+const logContainer = ref<HTMLElement | null>(null)
+const paused = ref(false)
+
+// 新日志追加后自动滚动到底部（鼠标未悬停时）
+watch(
+  () => logMessages.value.length,
+  () => {
+    if (paused.value) return
+    nextTick(() => {
+      const el = logContainer.value
+      if (el) {
+        el.scrollTop = el.scrollHeight
+      }
+    })
+  },
+)
 </script>
 
 <template>
@@ -32,7 +50,7 @@ const {
             v-model="inputText"
             class="w-full p-3 rounded-md border font-mono text-sm resize-y"
             style="min-height: 120px; background-color: var(--c-bg); border-color: var(--c-border); color: var(--c-text)"
-            placeholder="输入 Notion 页面 ID，每行一个或用逗号分隔&#10;例如：&#10;abc123def456&#10;789ghi012jkl"
+            placeholder="输入 Notion 页面 ID 或链接，每行一个或用逗号分隔&#10;例如：&#10;https://app.notion.com/p/abc123def456?source=copy_link"
             :disabled="isSyncing"
           />
         </section>
@@ -77,9 +95,6 @@ const {
                 style="accent-color: var(--c-brand)"
                 @change="toggleSelectId(item.id)"
               />
-              <span class="truncate font-mono text-xs" style="max-width: 200px; color: var(--c-text-secondary)">
-                {{ item.id }}
-              </span>
               <span class="flex-1 truncate">{{ item.title }}</span>
               <span class="text-xs shrink-0" style="color: var(--c-text-tertiary)">
                 {{ item.lastSync }}
@@ -111,8 +126,11 @@ const {
       <section class="p-5 rounded-lg" style="background-color: var(--c-card-bg); border: 1px solid var(--c-card-border); box-shadow: var(--c-shadow)">
         <h2 class="text-lg font-semibold mb-4" style="color: var(--c-text-primary)">同步日志</h2>
         <div
+          ref="logContainer"
           class="rounded p-3 overflow-y-auto font-mono text-xs leading-relaxed"
           style="height: 400px; background-color: var(--c-bg-secondary); color: var(--c-text)"
+          @mouseenter="paused = true"
+          @mouseleave="paused = false"
         >
           <div v-if="logMessages.length === 0" style="color: var(--c-text-secondary)">
             暂无日志，点击「开始同步」后显示
