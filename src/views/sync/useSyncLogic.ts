@@ -13,11 +13,33 @@ export function useSyncLogic() {
   const taskMap = ref<Map<string, { title: string; status: string; progress: number }>>(new Map())
   const { items: historyList, addOrUpdate } = usePageHistory()
 
+  /** 从 Notion 页面链接中提取 page ID */
+  function extractId(raw: string): string | null {
+    const s = raw.trim()
+    if (!s) return null
+
+    // URL 格式: https://app.notion.com/p/{32hex}?... 或 https://notion.so/{32hex}?...
+    const urlMatch = s.match(/\/(?:pages?\/)?([0-9a-fA-F]{32})(?:[?#]|$)/)
+    if (urlMatch) return urlMatch[1]
+
+    // 带横线的 UUID 格式
+    const uuidMatch = s.match(
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+    )
+    if (uuidMatch) return uuidMatch[0]
+
+    // 纯 32 位 hex
+    const hexMatch = s.match(/^[0-9a-fA-F]{32}$/)
+    if (hexMatch) return hexMatch[0]
+
+    return null
+  }
+
   const parsedIds = computed(() => {
     return inputText.value
       .split(/[\n,]+/)
-      .map(s => s.trim())
-      .filter(s => s.length > 0)
+      .map(s => extractId(s))
+      .filter((id): id is string => id !== null)
   })
 
   const allTargetIds = computed(() => {
