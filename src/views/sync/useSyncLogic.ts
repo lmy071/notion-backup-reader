@@ -78,10 +78,14 @@ export function useSyncLogic() {
         status: task.status,
         progress: task.progress,
       })
-      if (task.status === 'done') {
-        addLog(`✅ ${task.title} — 同步完成`)
-      } else if (task.status === 'error') {
-        addLog(`❌ ${task.title} — ${task.error || '同步失败'}`)
+      // 只在新状态出现时打印一次日志（避免重复回调导致的冗余日志）
+      const prev = taskMap.value.get(id)
+      if (task.status !== prev?.status) {
+        if (task.status === 'done') {
+          addLog(`✅ ${task.title} — 同步完成`)
+        } else if (task.status === 'error') {
+          addLog(`❌ ${task.title} — ${task.error || '同步失败'}`)
+        }
       }
     }
     taskMap.value = map
