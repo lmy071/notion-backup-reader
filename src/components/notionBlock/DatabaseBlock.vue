@@ -115,9 +115,9 @@ function getCellText(val: DatabasePropertyValue | undefined): string {
     case 'files':
       return val.files?.map(f => f.name).join(', ') ?? ''
     case 'created_time':
-      return val.created_time ?? ''
+      return formatTime(val.created_time)
     case 'last_edited_time':
-      return val.last_edited_time ?? ''
+      return formatTime(val.last_edited_time)
     default:
       return ''
   }
@@ -131,6 +131,17 @@ function openDrawer(rowId: string) {
 function closeDrawer() {
   drawerOpen.value = false
   selectedRowId.value = null
+}
+
+function formatTime(iso: string | undefined): string {
+  if (!iso) return '-'
+  try {
+    const d = new Date(iso)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  } catch {
+    return iso
+  }
 }
 
 function formatDrawerValue(val: DatabasePropertyValue | undefined): string {
@@ -175,9 +186,9 @@ function formatDrawerValue(val: DatabasePropertyValue | undefined): string {
     case 'files':
       return val.files?.map(f => f.name).join(', ') ?? '-'
     case 'created_time':
-      return val.created_time ?? '-'
+      return formatTime(val.created_time)
     case 'last_edited_time':
-      return val.last_edited_time ?? '-'
+      return formatTime(val.last_edited_time)
     default:
       return '-'
   }
@@ -285,7 +296,7 @@ function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
         v-if="drawerOpen"
         class="fixed top-0 right-0 h-full z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-out"
         :class="drawerOpen ? 'translate-x-0' : 'translate-x-full'"
-        style="width: 480px; max-width: 90vw; background-color: var(--c-bg);"
+        style="width: 40%; min-width: 360px; max-width: 90vw; background-color: var(--c-bg);"
       >
         <!-- Header -->
         <div
