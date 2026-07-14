@@ -283,64 +283,85 @@ function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
 
     <!-- Row detail drawer -->
     <Teleport to="body">
-      <!-- Backdrop -->
-      <div
-        v-if="drawerOpen"
-        class="fixed inset-0 z-40 transition-opacity duration-200"
-        style="background-color: rgba(0,0,0,0.3)"
-        @click="closeDrawer"
-      />
-
-      <!-- Drawer panel -->
-      <div
-        v-if="drawerOpen"
-        class="fixed top-0 right-0 h-full z-50 flex flex-col shadow-2xl transition-transform duration-300 ease-out"
-        :class="drawerOpen ? 'translate-x-0' : 'translate-x-full'"
-        style="width: 40%; min-width: 360px; max-width: 90vw; background-color: var(--c-bg);"
-      >
-        <!-- Header -->
+      <Transition name="drawer-fade">
         <div
-          class="flex items-center justify-between px-6 py-4 shrink-0"
-          style="border-bottom: 1px solid var(--c-border); background-color: var(--c-bg-secondary)"
-        >
-          <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--c-text-secondary)">
-            行详情
-          </h3>
-          <button
-            class="w-7 h-7 flex items-center justify-center rounded-full transition-colors cursor-pointer"
-            style="color: var(--c-text-secondary)"
-            @click="closeDrawer"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+          v-if="drawerOpen"
+          class="fixed inset-0 z-40"
+          style="background-color: rgba(0,0,0,0.3)"
+          @click="closeDrawer"
+        />
+      </Transition>
 
-        <!-- Body -->
-        <div class="flex-1 overflow-y-auto px-6 py-5">
-          <template v-if="selectedRow">
-            <dl class="space-y-0">
-              <div
-                v-for="col in getColumnNames()"
-                :key="col.key"
-                class="flex py-3"
-                :style="{ borderBottom: '1px solid var(--c-border-light)' }"
-              >
-                <dt class="w-32 shrink-0 text-xs font-medium uppercase tracking-wide pt-0.5" style="color: var(--c-text-tertiary)">
-                  {{ col.name }}
-                </dt>
-                <dd class="flex-1 min-w-0 text-sm leading-relaxed" :style="{ color: 'var(--c-text)' }">
-                  {{ formatDrawerValue(selectedRow.properties[col.key]) }}
-                </dd>
-              </div>
-            </dl>
-          </template>
-          <div v-else class="text-sm text-center py-8" style="color: var(--c-text-tertiary)">
-            未选择行
+      <Transition name="drawer-slide">
+        <div
+          v-if="drawerOpen"
+          class="fixed top-0 right-0 h-full z-50 flex flex-col shadow-2xl"
+          style="width: 40%; min-width: 360px; max-width: 90vw; background-color: var(--c-bg);"
+        >
+          <!-- Header -->
+          <div
+            class="flex items-center justify-between px-6 py-4 shrink-0"
+            style="border-bottom: 1px solid var(--c-border); background-color: var(--c-bg-secondary)"
+          >
+            <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--c-text-secondary)">
+              行详情
+            </h3>
+            <button
+              class="w-7 h-7 flex items-center justify-center rounded-full transition-colors cursor-pointer"
+              style="color: var(--c-text-secondary)"
+              @click="closeDrawer"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Body -->
+          <div class="flex-1 overflow-y-auto px-6 py-5">
+            <template v-if="selectedRow">
+              <dl class="space-y-0">
+                <div
+                  v-for="col in getColumnNames()"
+                  :key="col.key"
+                  class="flex py-3"
+                  :style="{ borderBottom: '1px solid var(--c-border-light)' }"
+                >
+                  <dt class="w-32 shrink-0 text-xs font-medium uppercase tracking-wide pt-0.5" style="color: var(--c-text-tertiary)">
+                    {{ col.name }}
+                  </dt>
+                  <dd class="flex-1 min-w-0 text-sm leading-relaxed" :style="{ color: 'var(--c-text)' }">
+                    {{ formatDrawerValue(selectedRow.properties[col.key]) }}
+                  </dd>
+                </div>
+              </dl>
+            </template>
+            <div v-else class="text-sm text-center py-8" style="color: var(--c-text-tertiary)">
+              未选择行
+            </div>
           </div>
         </div>
-      </div>
+      </Transition>
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.drawer-fade-enter-active,
+.drawer-fade-leave-active {
+  transition: opacity 250ms ease;
+}
+.drawer-fade-enter-from,
+.drawer-fade-leave-to {
+  opacity: 0;
+}
+
+.drawer-slide-enter-active,
+.drawer-slide-leave-active {
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.drawer-slide-enter-from,
+.drawer-slide-leave-to {
+  transform: translateX(100%);
+}
+</style>
