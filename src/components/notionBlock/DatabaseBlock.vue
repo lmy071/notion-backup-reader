@@ -54,10 +54,17 @@ watch(
 // Extract column names from database properties
 function getColumnNames(): Array<{ key: string; name: string }> {
   if (!database.value) return []
-  return Object.entries(database.value.properties).map(([key, config]) => ({
+  const cols = Object.entries(database.value.properties).map(([key, config]) => ({
     key,
     name: config.name || key,
+    type: config.type || '',
   }))
+  // title 列始终排在最左
+  return cols.sort((a, b) => {
+    if (a.type === 'title') return -1
+    if (b.type === 'title') return 1
+    return 0
+  })
 }
 
 // Extract cell text by property type
