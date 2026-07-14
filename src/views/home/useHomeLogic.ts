@@ -53,8 +53,8 @@ export function useHomeLogic() {
 
       const allPages = batch?.pages ?? []
 
-      // 根页面 = pages 中 pageId === rootPageId 的那条；兜底取第一条
-      const rootPage = allPages.find(p => p.pageId === rootId) ?? allPages[0] ?? null
+      // 根页面 = pages 中 pageId（去横线后）=== rootPageId 的那条；兜底取第一条
+      const rootPage = allPages.find(p => p.pageId.replace(/-/g, '') === rootId) ?? allPages[0] ?? null
 
       return {
         rootPageId: rootId,
