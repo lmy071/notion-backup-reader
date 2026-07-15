@@ -85,5 +85,12 @@ export function useHomeLogic() {
 
   onMounted(loadPages)
 
-  return { roots, loading, loadPages, selectDate }
+  async function removeRoot(rootPageId: string) {
+    await storage.remove(rootPageId)
+    selectedDates.value = { ...selectedDates.value }
+    delete selectedDates.value[rootPageId]
+    await loadPages()
+  }
+
+  return { roots, loading, loadPages, selectDate, removeRoot }
 }

@@ -306,6 +306,16 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(versions)
   }
 
+  // ── DELETE /api/storage/remove/:rootPageId
+  if (method === 'DELETE' && path.startsWith('/api/storage/remove/')) {
+    const rootPageId = segments[3]
+    const rootDir = join(JSON_DIR, rootPageId)
+    if (existsSync(rootDir)) {
+      await rmRecursive(rootDir)
+    }
+    return jsonResponse({ ok: true })
+  }
+
   // ── DELETE /api/storage/cleanup/:rootPageId
   if (method === 'DELETE' && path.startsWith('/api/storage/cleanup/')) {
     const rootPageId = segments[3]

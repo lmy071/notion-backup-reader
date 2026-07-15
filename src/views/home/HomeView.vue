@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useHomeLogic } from './useHomeLogic'
 import PageCard from '@/components/common/PageCard.vue'
 
 const router = useRouter()
-const { roots, loading, selectDate } = useHomeLogic()
+const { roots, loading, selectDate, removeRoot } = useHomeLogic()
+
+const confirmId = ref<string | null>(null)
 
 function navigateToPage(rootPageId: string, date: string, pageId: string) {
   router.push({
@@ -12,6 +15,17 @@ function navigateToPage(rootPageId: string, date: string, pageId: string) {
     params: { pageId },
     query: { root: rootPageId, date },
   })
+}
+
+async function handleDelete(rootPageId: string, title: string) {
+  if (confirmId.value === rootPageId) {
+    // 第二次点击 — 执行删除
+    confirmId.value = null
+    await removeRoot(rootPageId)
+  } else {
+    // 第一次点击 — 展示确认态
+    confirmId.value = rootPageId
+  }
 }
 </script>
 
@@ -67,27 +81,42 @@ function navigateToPage(rootPageId: string, date: string, pageId: string) {
             <span>{{ root.pages.length - 1 }} 个子页面</span>
           </div>
 
-          <!-- 日期选择器 -->
-          <div v-if="root.availableDates.length > 1" class="flex items-center gap-1.5">
-            <span class="text-xs" style="color: var(--c-text-tertiary)">备份日期</span>
-            <select
-              :value="root.selectedDate"
-              class="text-xs rounded border px-2 py-1 cursor-pointer outline-none"
+          <div class="flex items-center gap-2">
+            <!-- 日期选择器 -->
+            <div v-if="root.availableDates.length > 1" class="flex items-center gap-1.5">
+              <span class="text-xs" style="color: var(--c-text-tertiary)">备份日期</span>
+              <select
+                :value="root.selectedDate"
+                class="text-xs rounded border px-2 py-1 cursor-pointer outline-none"
+                :style="{
+                  backgroundColor: 'var(--c-bg)',
+                  color: 'var(--c-text-secondary)',
+                  borderColor: 'var(--c-border)',
+                }"
+                @change="selectDate(root.rootPageId, ($event.target as HTMLSelectElement).value)"
+              >
+                <option
+                  v-for="d in root.availableDates"
+                  :key="d"
+                  :value="d"
+                >{{ d }}</option>
+              </select>
+            </div>
+            <span v-else class="text-xs" style="color: var(--c-text-tertiary)">{{ root.selectedDate }}</span>
+
+            <!-- 删除按钮 -->
+            <button
+              class="text-xs px-2 py-1 rounded cursor-pointer transition-colors"
               :style="{
-                backgroundColor: 'var(--c-bg)',
-                color: 'var(--c-text-secondary)',
-                borderColor: 'var(--c-border)',
+                color: confirmId === root.rootPageId ? 'var(--c-bg)' : 'var(--c-text-tertiary)',
+                backgroundColor: confirmId === root.rootPageId ? 'var(--c-danger)' : 'transparent',
+                border: confirmId === root.rootPageId ? '1px solid var(--c-danger)' : '1px solid var(--c-border)',
               }"
-              @change="selectDate(root.rootPageId, ($event.target as HTMLSelectElement).value)"
+              @click="handleDelete(root.rootPageId, root.title)"
             >
-              <option
-                v-for="d in root.availableDates"
-                :key="d"
-                :value="d"
-              >{{ d }}</option>
-            </select>
+              {{ confirmId === root.rootPageId ? '确认删除？' : '删除' }}
+            </button>
           </div>
-          <span v-else class="text-xs" style="color: var(--c-text-tertiary)">{{ root.selectedDate }}</span>
         </div>
 
         <!-- 根页面主卡片（只展示根页面本身） -->

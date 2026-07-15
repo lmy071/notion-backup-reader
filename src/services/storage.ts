@@ -99,6 +99,10 @@ export const storage = {
 
   // ========== 清理 ==========
 
+  async remove(rootPageId: string): Promise<void> {
+    await fetch(`${API_BASE}/remove/${rootPageId}`, { method: 'DELETE' })
+  },
+
   async cleanup(rootPageId: string): Promise<void> {
     await fetch(`${API_BASE}/cleanup/${rootPageId}`, { method: 'DELETE' })
   },
