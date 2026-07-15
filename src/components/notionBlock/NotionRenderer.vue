@@ -35,6 +35,7 @@ const componentMap: ComponentMap = {
   heading_1: HeadingBlock,
   heading_2: HeadingBlock,
   heading_3: HeadingBlock,
+  heading_4: HeadingBlock,
   code: CodeBlock,
   callout: CalloutBlock,
   quote: QuoteBlock,

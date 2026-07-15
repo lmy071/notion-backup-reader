@@ -30,6 +30,9 @@ export function parseBlock(raw: RawBlock): NotionBlock {
     case 'heading_3':
       block.rich_text = getRichText(raw.heading_3)
       break
+    case 'heading_4':
+      block.rich_text = getRichText(raw.heading_4)
+      break
 
     case 'bulleted_list_item':
       block.rich_text = getRichText(raw.bulleted_list_item)

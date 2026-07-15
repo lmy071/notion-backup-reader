@@ -10,7 +10,7 @@ const richText = (props.block as { rich_text?: unknown[] }).rich_text ?? []
 const level = parseInt(props.block.type.replace('heading_', '')) || 1
 
 const tag = `h${level}` as keyof HTMLElementTagNameMap
-const sizeMap: Record<number, string> = { 1: 'var(--fs-3xl)', 2: 'var(--fs-2xl)', 3: 'var(--fs-xl)' }
+const sizeMap: Record<number, string> = { 1: 'var(--fs-3xl)', 2: 'var(--fs-2xl)', 3: 'var(--fs-xl)', 4: 'var(--fs-lg)' }
 </script>
 
 <template>
