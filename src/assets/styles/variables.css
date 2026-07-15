@@ -12,6 +12,8 @@
   /* ── 页面背景 ── */
   --c-bg: #ffffff;
   --c-bg-secondary: #f9fafb;
+  --bg-overlay-opacity: 0.92;
+  --bg-overlay-blur: 0px;
   --c-bg-tertiary: #f3f4f6;
 
   /* ── 文字 ── */
@@ -106,6 +108,8 @@ html.dark,
 
   --c-bg:             #0f1117;
   --c-bg-secondary:   #161822;
+  --bg-overlay-opacity: 0.82;
+  --bg-overlay-blur: 0px;
   --c-bg-tertiary:    #1d2030;
 
   --c-text:           #d1d5db;
