@@ -139,6 +139,27 @@ const isLeaf = computed(() => {
   return !selectedNode.value.children
 })
 
+/** 在树中查找节点 id 的祖先链（id 数组） */
+function getAncestorChain(targetId: string): string[] {
+  function walk(nodes: ApiNode[], chain: string[]): string[] | null {
+    for (const node of nodes) {
+      if (node.id === targetId) return [...chain, node.id]
+      if (node.children) {
+        const found = walk(node.children, [...chain, node.id])
+        if (found) return found
+      }
+    }
+    return null
+  }
+  return walk(apiTree, []) ?? []
+}
+
+/** selectedNodeId 是否属于 parentId 的子树 */
+function isChildOf(parentId: string): boolean {
+  const chain = getAncestorChain(selectedNodeId.value)
+  return chain.includes(parentId) && chain[chain.length - 1] !== parentId
+}
+
 /** 叶子节点切换：填入入参模板，清空上次响应 */
 function selectNode(node: ApiNode) {
   selectedNodeId.value = node.id
@@ -247,7 +268,7 @@ const resultJsonString = computed(() => {
               v-if="node.children"
               class="text-xs"
               style="color: var(--c-text-tertiary); width: 12px"
-            >{{ selectedNodeId?.startsWith(node.id) ? '▾' : '▸' }}</span>
+            >{{ isChildOf(node.id) || node.id === selectedNodeId ? '▾' : '▸' }}</span>
             <span v-else class="w-12px" />
             <span
               class="text-10px font-mono px-1 rounded"
@@ -257,7 +278,7 @@ const resultJsonString = computed(() => {
           </button>
 
           <!-- Children -->
-          <template v-if="node.children && selectedNodeId?.startsWith(node.id)">
+          <template v-if="node.children && (isChildOf(node.id) || node.id === selectedNodeId)">
             <button
               v-for="child in node.children"
               :key="child.id"
