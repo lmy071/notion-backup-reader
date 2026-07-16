@@ -3,13 +3,20 @@ import { readFile, writeFile, mkdir, readdir, stat, unlink, appendFile } from 'n
 import { join, dirname } from 'node:path'
 import { existsSync } from 'node:fs'
 
+// ── 常量定义 ──────────────────────────────────────────────────────
+
+/** JSON 数据根目录（备份存储） */
 const JSON_DIR = join(process.cwd(), 'json')
+/** 日志文件目录 */
 const LOG_DIR = join(process.cwd(), 'log')
+/** 每个根页面最多保留的版本数 */
 const MAX_VERSIONS = 10
+/** 最多保留的日志文件数 */
 const MAX_LOG_FILES = 30
 
-// ── JSON helpers ────────────────────────────────────────────────
+// ── JSON 文件助手 ────────────────────────────────────────────────
 
+/** 返回 JSON 格式的 HTTP 响应 */
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -17,15 +24,18 @@ function jsonResponse(data: unknown, status = 200): Response {
   })
 }
 
+/** 返回错误响应 */
 function errorResponse(message: string, status = 500): Response {
   return jsonResponse({ error: message }, status)
 }
 
+/** 读取并解析 JSON 文件 */
 async function readJson(filePath: string): Promise<unknown> {
   const content = await readFile(filePath, 'utf-8')
   return JSON.parse(content)
 }
 
+/** 安全读取 JSON 文件（不存在或解析失败返回 null） */
 async function readJsonSafe(filePath: string): Promise<unknown> {
   try {
     return await readJson(filePath)
@@ -34,11 +44,13 @@ async function readJsonSafe(filePath: string): Promise<unknown> {
   }
 }
 
+/** 写入 JSON 文件（自动创建父目录） */
 async function writeJson(filePath: string, data: unknown): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true })
   await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8')
 }
 
+/** 列出目录下的子目录名 */
 async function listDirs(dirPath: string): Promise<string[]> {
   try {
     const entries = await readdir(dirPath, { withFileTypes: true })
@@ -48,19 +60,26 @@ async function listDirs(dirPath: string): Promise<string[]> {
   }
 }
 
-// ── Log helpers ──────────────────────────────────────────────────
+// ── 日志助手 ──────────────────────────────────────────────────────
 
+/** 向日志文件追加一行 */
 async function appendToLog(fileName: string, line: string): Promise<void> {
   await mkdir(LOG_DIR, { recursive: true })
   const filePath = join(LOG_DIR, fileName)
   await appendFile(filePath, line, 'utf-8')
 }
 
+/**
+ * 读取日志。
+ * - 指定 date 时读取对应日期的日志文件
+ * - 未指定 date 时读取最近 10 个日志文件
+ */
 async function readLogs(
   date?: string,
   _level?: string,
   _pageId?: string,
 ): Promise<unknown[]> {
+  // 按日期读取单个日志文件
   if (date) {
     const filePath = join(LOG_DIR, `${date}.log`)
     try {
@@ -74,7 +93,7 @@ async function readLogs(
     }
   }
 
-  // Read all log files
+  // 读取最近 10 个日志文件
   let files: string[]
   try {
     files = await readdir(LOG_DIR)
@@ -93,12 +112,16 @@ async function readLogs(
         .map((line) => JSON.parse(line))
       results.push(...entries)
     } catch {
-      // skip corrupted files
+      // 跳过损坏的日志文件
     }
   }
   return results
 }
 
+/**
+ * 清理过期的日志文件。
+ * 按文件名排序（YYYY-MM-DD.log），删除超出 MAX_LOG_FILES 的最旧文件。
+ */
 async function cleanupLogs(): Promise<void> {
   let files: string[]
   try {
@@ -114,37 +137,48 @@ async function cleanupLogs(): Promise<void> {
   }
 }
 
-// ── API routes ───────────────────────────────────────────────────
+// ── API 路由分发 ─────────────────────────────────────────────────
 
-// URL 解析辅助：从 path 提取路由参数
-// GET /api/storage/page/:rootPageId/:date/:pageId
-// GET /api/storage/batch-index/:rootPageId/:date
-// GET /api/storage/versions/:rootPageId
-// DELETE /api/storage/cleanup/:rootPageId
+// URL 路径 → 路由参数映射：
+// GET  /api/storage/page/:rootPageId/:date/:pageId         — 读取页面
+// GET  /api/storage/batch-index/:rootPageId/:date          — 批次索引
+// POST /api/storage/save                                   — 保存同步结果
+// GET  /api/storage/database/:rootPageId/:date/:pageId/:db — 读取数据库
+// GET  /api/storage/backlinks/:rootPageId/:date/:pageId    — 反向链接
+// GET  /api/storage/versions/:rootPageId                   — 版本列表
+// DELETE /api/storage/remove/:rootPageId                   — 删除整个根页面备份
+// DELETE /api/storage/cleanup/:rootPageId                  — 清理旧版本
+// POST /api/storage/append-log                             — 追加日志
+// GET  /api/storage/logs                                   — 查询日志
+// POST /api/storage/cleanup-logs                           — 清理日志
+// POST /api/notion/*                                       — Notion API 代理
 
+/** 总路由分发：根据 method + path 分发到对应的处理逻辑 */
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const path = url.pathname
   const method = req.method
   const segments = path.split('/').filter(Boolean)
 
-  // ── GET /api/storage/index
+  // ── GET /api/storage/index — 全局索引（首页卡片列表） ──
   if (method === 'GET' && path === '/api/storage/index') {
     return jsonResponse(await buildGlobalIndex())
   }
 
-  // ── GET /api/storage/page/:rootPageId/:date/:pageId
+  // ── GET /api/storage/page/:rootPageId/:date/:pageId — 读取单个页面 ──
   if (method === 'GET' && path.startsWith('/api/storage/page/')) {
-    // segments = ['api','storage','page','rootPageId','date','pageId']
+    // segments = ['api','storage','page','rootPageId','date','pageId',...]
     if (segments.length < 6) return errorResponse('Invalid path', 400)
     const rootPageId = segments[3]
     const date = segments[4]
     const pageId = segments.slice(5).join('/')
 
+    // 读取页面的 page.json
     const pageDir = join(JSON_DIR, rootPageId, date, pageId)
     const page = await readJsonSafe(join(pageDir, 'page.json'))
     if (!page) return jsonResponse(null, 404)
 
+    // 读取子页面（children 目录）
     const children: Record<string, unknown> = {}
     const childrenDir = join(pageDir, 'children')
     if (existsSync(childrenDir)) {
@@ -156,7 +190,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
-    // Load embedded databases
+    // 读取内嵌数据库（databases 目录）
     const databases: Record<string, unknown> = {}
     const databasesDir = join(pageDir, 'databases')
     if (existsSync(databasesDir)) {
@@ -168,10 +202,11 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
+    // 返回页面 + 子页面 + 数据库 + 子页面摘要
     return jsonResponse({ page, children, databases, subPages: extractSubPageCards(page) })
   }
 
-  // ── GET /api/storage/batch-index/:rootPageId/:date
+  // ── GET /api/storage/batch-index/:rootPageId/:date — 批次索引 ──
   if (method === 'GET' && path.startsWith('/api/storage/batch-index/')) {
     if (segments.length < 6) return errorResponse('Invalid path', 400)
     const rootPageId = segments[3]
@@ -182,8 +217,8 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(null, 404)
   }
 
-  // ── POST /api/storage/save
-  // body: { rootPageId, pages: [{ page, children?, databases? }] }
+  // ── POST /api/storage/save — 批量保存同步结果 ──
+  // 请求体: { rootPageId, pages: [{ page, children?, databases? }] }
   if (method === 'POST' && path === '/api/storage/save') {
     const body = (await req.json()) as Record<string, unknown>
     const rootPageId = body.rootPageId as string
@@ -203,10 +238,10 @@ async function handleRequest(req: Request): Promise<Response> {
 
       const pageDir = join(batchDir, pageId)
 
-      // Save page.json
+      // 保存主页面 JSON
       await writeJson(join(pageDir, 'page.json'), page)
 
-      // Save children
+      // 保存子页面（children 目录）
       const children = entry.children as Record<string, unknown> | undefined
       const childrenEntries = children ? Object.keys(children) : []
       if (children && childrenEntries.length > 0) {
@@ -216,7 +251,7 @@ async function handleRequest(req: Request): Promise<Response> {
         }
       }
 
-      // Save databases
+      // 保存内嵌数据库（databases 目录）
       const databases = entry.databases as Array<Record<string, unknown>> | undefined
       const databaseIds: string[] = []
       if (databases && databases.length > 0) {
@@ -231,7 +266,7 @@ async function handleRequest(req: Request): Promise<Response> {
         }
       }
 
-      // Save meta.json
+      // 保存元信息（meta.json）
       const blocks = (page as { blocks?: unknown[] })?.blocks
       const meta: Record<string, unknown> = {
         pageId,
@@ -245,6 +280,7 @@ async function handleRequest(req: Request): Promise<Response> {
       }
       await writeJson(join(pageDir, 'meta.json'), meta)
 
+      // 构建批次条目（供首页 index.json 使用）
       batchEntries.push({
         pageId,
         rootPageId,
@@ -257,6 +293,7 @@ async function handleRequest(req: Request): Promise<Response> {
       })
     }
 
+    // 保存批次摘要（batchDir/index.json）
     const batchIndex = {
       version: 1,
       rootPageId,
@@ -266,7 +303,7 @@ async function handleRequest(req: Request): Promise<Response> {
     }
     await writeJson(join(batchDir, 'index.json'), batchIndex)
 
-    // Cleanup old versions for this root
+    // 清理过旧版本（超过 MAX_VERSIONS 的日期目录）
     const allDates = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
     for (const oldDate of allDates.slice(MAX_VERSIONS)) {
       await rmRecursive(join(JSON_DIR, rootPageId, oldDate))
@@ -275,9 +312,8 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse({ ok: true })
   }
 
-  // ── GET /api/storage/database/:rootPageId/:date/:pageId/:databaseId
+  // ── GET /api/storage/database/:rootPageId/:date/:pageId/:databaseId — 读取数据库 ──
   if (method === 'GET' && path.startsWith('/api/storage/database/')) {
-    // segments = ['api','storage','database','rootPageId','date','pageId','databaseId']
     if (segments.length < 7) return errorResponse('Invalid path', 400)
     const rootPageId = segments[3]
     const date = segments[4]
@@ -290,7 +326,7 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(db)
   }
 
-  // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId
+  // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId — 反向链接 ──
   if (method === 'GET' && path.startsWith('/api/storage/backlinks/')) {
     if (segments.length < 7) return errorResponse('Invalid path', 400)
     const rootPageId = segments[3]
@@ -299,14 +335,14 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(await buildBacklinks(rootPageId, date, pageId))
   }
 
-  // ── GET /api/storage/versions/:rootPageId
+  // ── GET /api/storage/versions/:rootPageId — 版本列表 ──
   if (method === 'GET' && path.startsWith('/api/storage/versions/')) {
     const rootPageId = segments[3]
     const versions = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
     return jsonResponse(versions)
   }
 
-  // ── DELETE /api/storage/remove/:rootPageId
+  // ── DELETE /api/storage/remove/:rootPageId — 删除整个根页面备份 ──
   if (method === 'DELETE' && path.startsWith('/api/storage/remove/')) {
     const rootPageId = segments[3]
     const rootDir = join(JSON_DIR, rootPageId)
@@ -316,7 +352,7 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse({ ok: true })
   }
 
-  // ── DELETE /api/storage/cleanup/:rootPageId
+  // ── DELETE /api/storage/cleanup/:rootPageId — 清理旧版本 ──
   if (method === 'DELETE' && path.startsWith('/api/storage/cleanup/')) {
     const rootPageId = segments[3]
     const allDates = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
@@ -326,14 +362,14 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse({ ok: true })
   }
 
-  // ── POST /api/storage/append-log
+  // ── POST /api/storage/append-log — 追加日志行 ──
   if (method === 'POST' && path === '/api/storage/append-log') {
     const body = (await req.json()) as { fileName: string; line: string }
     await appendToLog(body.fileName, body.line)
     return jsonResponse({ ok: true })
   }
 
-  // ── GET /api/storage/logs
+  // ── GET /api/storage/logs — 查询日志 ──
   if (method === 'GET' && path === '/api/storage/logs') {
     const date = url.searchParams.get('date') ?? undefined
     const level = url.searchParams.get('level') ?? undefined
@@ -342,31 +378,37 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(logs)
   }
 
-  // ── POST /api/storage/cleanup-logs
+  // ── POST /api/storage/cleanup-logs — 清理过期日志 ──
   if (method === 'POST' && path === '/api/storage/cleanup-logs') {
     await cleanupLogs()
     return jsonResponse({ ok: true })
   }
 
-  // ── Notion API proxy — 浏览器不直连 api.notion.com（CORS），由中间件转发
+  // ── /api/notion/* — 转发到 Notion API 代理 ──
   if (path.startsWith('/api/notion/')) {
     return handleNotionProxy(req)
   }
 
+  // 未匹配任何路由
   return new Response('Not Found', { status: 404 })
 }
 
-// ── Notion API proxy ───────────────────────────────────────────
+// ── Notion API 代理 ───────────────────────────────────────────────
 
+/** Notion REST API 基础地址 */
 const NOTION_API_BASE = 'https://api.notion.com/v1'
+/** Notion API 版本 */
 const NOTION_VERSION = '2022-06-28'
 
 /**
- * 扫描 json/ 目录构建全局索引。
- * 结构：json/{rootPageId}/{date}/index.json → 聚合所有批次
+ * 构建全局索引。
+ * 扫描 json/{rootPageId}/{date}/index.json，聚合所有批次的页面摘要，
+ * 供首页「已备份页面」列表使用。
  */
 async function buildGlobalIndex(): Promise<Record<string, unknown>> {
   const batches: unknown[] = []
+
+  // 读取所有根页面目录
   let rootDirs: string[]
   try {
     rootDirs = await readdir(JSON_DIR)
@@ -380,6 +422,7 @@ async function buildGlobalIndex(): Promise<Record<string, unknown>> {
     try { statInfo = await stat(rootPath) } catch { continue }
     if (!statInfo.isDirectory()) continue
 
+    // 按日期降序遍历
     const dateDirs = (await listDirs(rootPath)).sort().reverse()
     for (const date of dateDirs) {
       const indexPath = join(rootPath, date, 'index.json')
@@ -397,17 +440,23 @@ async function buildGlobalIndex(): Promise<Record<string, unknown>> {
   return { version: 1, updatedAt: new Date().toISOString(), batches }
 }
 
+/**
+ * Notion API 代理分发。
+ * 浏览器无法直连 api.notion.com（CORS 限制），
+ * 所有 Notion API 请求由 Vite 中间件转发，apiKey 通过 X-Notion-Token header 传递。
+ */
 async function handleNotionProxy(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const method = req.method
   const path = url.pathname
 
-  // Extract the Notion API token from the request header
+  // 从请求头提取 API token
   const notionToken = req.headers.get('X-Notion-Token')
   if (!notionToken) {
     return errorResponse('Missing X-Notion-Token header (set apiKey in config)', 401)
   }
 
+  // 构造 Notion API 公共请求头
   const commonHeaders: Record<string, string> = {
     'Authorization': `Bearer ${notionToken}`,
     'Notion-Version': NOTION_VERSION,
@@ -415,9 +464,8 @@ async function handleNotionProxy(req: Request): Promise<Response> {
   }
 
   try {
-    // ── POST /api/notion/test-connection
+    // ── POST /api/notion/test-connection — 测试连接（调用 /users/me 验证 token 有效性） ──
     if (method === 'POST' && path === '/api/notion/test-connection') {
-      // Use the user endpoint as a lightweight connectivity test
       const res = await fetch(`${NOTION_API_BASE}/users/me`, { headers: commonHeaders })
       if (res.ok) {
         const data = await res.json() as Record<string, unknown>
@@ -430,12 +478,12 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse({ ok: false, message: `Notion API error: ${res.status} ${err}` }, 502)
     }
 
-    // ── POST /api/notion/fetch-page
+    // ── POST /api/notion/fetch-page — 获取 Notion 页面原始数据（页面元数据 + blocks） ──
     if (method === 'POST' && path === '/api/notion/fetch-page') {
       const body = await req.json() as { pageId: string }
       const { pageId } = body
 
-      // Fetch page metadata + blocks in parallel
+      // 并行请求页面元数据和所有 blocks
       const [pageRes, blocksRes] = await Promise.all([
         fetch(`${NOTION_API_BASE}/pages/${pageId}`, { headers: commonHeaders }),
         fetchBlocks(pageId, commonHeaders),
@@ -450,7 +498,7 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse({ page, blocks: blocksRes })
     }
 
-    // ── POST /api/notion/fetch-block-children
+    // ── POST /api/notion/fetch-block-children — 获取 block 的子节点 ──
     if (method === 'POST' && path === '/api/notion/fetch-block-children') {
       const body = await req.json() as { blockId: string; startCursor?: string }
       const { blockId, startCursor } = body
@@ -467,7 +515,7 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse(data)
     }
 
-    // ── POST /api/notion/fetch-database
+    // ── POST /api/notion/fetch-database — 查询数据库（获取所有行） ──
     if (method === 'POST' && path === '/api/notion/fetch-database') {
       const body = await req.json() as { databaseId: string }
       const { databaseId } = body
@@ -484,7 +532,7 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse({ database: data, results: (data as { results?: unknown }).results || [] })
     }
 
-    // ── POST /api/notion/fetch-database-schema
+    // ── POST /api/notion/fetch-database-schema — 获取数据库 schema 定义 ──
     if (method === 'POST' && path === '/api/notion/fetch-database-schema') {
       const body = await req.json() as { databaseId: string }
       const { databaseId } = body
@@ -498,12 +546,13 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse({ database: data })
     }
 
-    // ── POST /api/notion/inspect-database
-    // Returns raw Notion API responses for schema + query (debugging aid)
+    // ── POST /api/notion/inspect-database — 综合检查（同时返回 schema + query 原始响应） ──
+    // 用于诊断数据库权限、权限不足等问题，保留完整的 Notion API 返回
     if (method === 'POST' && path === '/api/notion/inspect-database') {
       const body = await req.json() as { databaseId: string }
       const { databaseId } = body
 
+      // 并行请求 schema 和 query
       const [schemaRes, queryRes] = await Promise.all([
         fetch(`${NOTION_API_BASE}/databases/${databaseId}`, { headers: commonHeaders }),
         fetch(`${NOTION_API_BASE}/databases/${databaseId}/query`,
@@ -536,7 +585,10 @@ async function handleNotionProxy(req: Request): Promise<Response> {
   }
 }
 
-/** Paginated fetch of all block children. */
+/**
+ * 分页拉取 block 的所有子节点。
+ * 处理 Notion API 分页（cursor-based），并递归拉取嵌套子块（toggle、column 等）。
+ */
 async function fetchBlocks(
   blockId: string,
   headers: Record<string, string>,
@@ -563,12 +615,18 @@ async function fetchBlocks(
     cursor = data.next_cursor as string | undefined
   }
 
-  // 递归拉取嵌套子块（toggle、column_list 等的 children）
+  // 拉取嵌套子块（toggle/column_list 等内嵌 children）
   await fetchNestedChildren(allBlocks, headers)
 
   return allBlocks
 }
 
+/**
+ * 需要递归拉取嵌套子块的 block 类型白名单。
+ * Notion API 的 /blocks/{id}/children 只返回顶层块，
+ * toggle、column、table 等类型的 children 字段为 null，
+ * 需要额外调用 /blocks/{block_id}/children 获取。
+ */
 const NESTED_BLOCK_TYPES = new Set([
   'toggle',
   'column_list',
@@ -579,7 +637,10 @@ const NESTED_BLOCK_TYPES = new Set([
   'table',
 ])
 
-/** 递归拉取 has_children 块的嵌套内容，填充到 block.children */
+/**
+ * 递归拉取 has_children 块的嵌套子内容。
+ * 将拉取结果填充到对应 block 的 children 字段中。
+ */
 async function fetchNestedChildren(
   blocks: unknown[],
   headers: Record<string, string>,
@@ -590,6 +651,7 @@ async function fetchNestedChildren(
 
   for (const block of blocks) {
     const b = block as Record<string, unknown>
+    // has_children = true 但 children 为 null → 需要拉取
     if (b.has_children && !b.children) {
       const type = b.type as string
       const id = b.id as string
@@ -609,8 +671,9 @@ async function fetchNestedChildren(
   await Promise.all(childFetchTasks)
 }
 
-// ── Sub-page card extraction ───────────────────────────────────
+// ── 子页面摘要提取 ────────────────────────────────────────────────
 
+/** 子页面摘要 */
 interface SubPageCard {
   pageId: string
   title: string
@@ -621,10 +684,14 @@ interface SubPageCard {
   direction: 'child'
 }
 
-/** Walk a parsed page block tree and extract sub-page summaries. */
+/**
+ * 在已解析的页面 block 树中提取所有 child_page 类型的子页面摘要。
+ * 递归扫描整棵 block 树（包括嵌套子块）。
+ */
 function extractSubPageCards(page: Record<string, unknown>): SubPageCard[] {
   const cards: SubPageCard[] = []
 
+  /** 递归遍历 blocks 数组 */
   function walk(blocks: unknown[]): void {
     if (!Array.isArray(blocks)) return
     for (const b of blocks) {
@@ -641,6 +708,7 @@ function extractSubPageCards(page: Record<string, unknown>): SubPageCard[] {
           direction: 'child',
         })
       }
+      // 递归扫描嵌套子块
       if (block.children && Array.isArray(block.children)) {
         walk(block.children as unknown[])
       }
@@ -651,7 +719,12 @@ function extractSubPageCards(page: Record<string, unknown>): SubPageCard[] {
   return cards
 }
 
-/** Scan all pages in the same batch for child_page references to targetPageId. */
+// ── 反向链接 ──────────────────────────────────────────────────────
+
+/**
+ * 构建反向链接：扫描同批次下所有页面，找出引用了 targetPageId 的页面。
+ * 反向链接表示"哪些页面链接到我"。
+ */
 async function buildBacklinks(
   rootPageId: string,
   date: string,
@@ -661,6 +734,8 @@ async function buildBacklinks(
   if (!existsSync(batchDir)) return []
 
   const cards: SubPageCard[] = []
+
+  // 列出批次下所有页面目录
   let pageDirs: string[]
   try {
     pageDirs = await readdir(batchDir)
@@ -677,6 +752,7 @@ async function buildBacklinks(
     const blocks = page.blocks as unknown[] | undefined
     if (!Array.isArray(blocks)) continue
 
+    // 在 blocks 树中搜索 child_page 类型且 id === targetPageId 的块
     let found = false
     function walk(b: unknown[]): void {
       for (const item of b) {
@@ -709,6 +785,9 @@ async function buildBacklinks(
   return cards
 }
 
+// ── 文件系统助手 ──────────────────────────────────────────────────
+
+/** 递归删除目录及其所有内容 */
 async function rmRecursive(dirPath: string): Promise<void> {
   try {
     const entries = await readdir(dirPath, { withFileTypes: true })
@@ -720,14 +799,32 @@ async function rmRecursive(dirPath: string): Promise<void> {
         await unlink(fullPath)
       }
     }
+    // 删除空目录本身（注意：用 unlink 而非 rmdir，因为 Windows 兼容性需要）
     await unlink(dirPath)
   } catch {
-    // ignore if doesn't exist
+    // 目录不存在时忽略
   }
 }
 
-// ── Plugin ───────────────────────────────────────────────────────
+/**
+ * 尝试将字符串解析为 JSON。
+ * 解析失败时返回原始字符串。
+ */
+function tryJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return raw
+  }
+}
 
+// ── Vite 插件定义 ─────────────────────────────────────────────────
+
+/**
+ * Vite 中间件插件。
+ * 拦截 /api/* 请求，将 Node.js IncomingMessage 转换为标准 Request，
+ * 分发到 handleRequest 处理，再将 Response 写回 Node.js ServerResponse。
+ */
 export function notionApiPlugin(): Plugin {
   return {
     name: 'notion-api-plugin',
@@ -737,7 +834,7 @@ export function notionApiPlugin(): Plugin {
           return next()
         }
 
-        // Build a minimal Request from the node http request
+        // 从 Node.js 原生请求构造标准 Web Request
         const url = `http://localhost${req.url}`
         const headers = new Headers()
         for (const [k, v] of Object.entries(req.headers)) {
@@ -745,6 +842,7 @@ export function notionApiPlugin(): Plugin {
           else if (Array.isArray(v)) headers.set(k, v.join(', '))
         }
 
+        // 读取请求体
         let body: string | undefined
         const chunks: Buffer[] = []
         await new Promise<void>((resolve) => {
@@ -761,6 +859,7 @@ export function notionApiPlugin(): Plugin {
           body: body || undefined,
         })
 
+        // 分发请求 → 写回响应
         try {
           const response = await handleRequest(request)
           _res.statusCode = response.status
