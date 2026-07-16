@@ -48,6 +48,14 @@ import { RouterView } from 'vue-router'
         >
           配置
         </router-link>
+        <router-link
+          to="/test"
+          class="px-4 py-2 rounded no-underline transition-colors"
+          style="font-size: var(--fs-sm); color: var(--c-text-secondary)"
+          active-class="!color-[--c-brand] !bg-[--c-brand-light]"
+        >
+          测试
+        </router-link>
       </div>
     </nav>
     <main class="flex-1 overflow-auto relative z-1">

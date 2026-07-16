@@ -498,6 +498,37 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse({ database: data })
     }
 
+    // ── POST /api/notion/inspect-database
+    // Returns raw Notion API responses for schema + query (debugging aid)
+    if (method === 'POST' && path === '/api/notion/inspect-database') {
+      const body = await req.json() as { databaseId: string }
+      const { databaseId } = body
+
+      const [schemaRes, queryRes] = await Promise.all([
+        fetch(`${NOTION_API_BASE}/databases/${databaseId}`, { headers: commonHeaders }),
+        fetch(`${NOTION_API_BASE}/databases/${databaseId}/query`,
+          { method: 'POST', headers: commonHeaders, body: JSON.stringify({ page_size: 100 }) },
+        ),
+      ])
+
+      const schemaText = await schemaRes.text()
+      const queryText = await queryRes.text()
+
+      return jsonResponse({
+        databaseId,
+        schema: {
+          status: schemaRes.status,
+          ok: schemaRes.ok,
+          body: tryJsonParse(schemaText),
+        },
+        query: {
+          status: queryRes.status,
+          ok: queryRes.ok,
+          body: tryJsonParse(queryText),
+        },
+      })
+    }
+
     return errorResponse(`Unknown Notion proxy endpoint: ${path}`, 404)
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e)

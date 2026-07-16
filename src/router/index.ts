@@ -22,6 +22,11 @@ const routes = [
     component: () => import('@/views/reader/ReaderView.vue'),
     props: true,
   },
+  {
+    path: '/test',
+    name: 'test',
+    component: () => import('@/views/test/TestView.vue'),
+  },
 ]
 
 const router = createRouter({
