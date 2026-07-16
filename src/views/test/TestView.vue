@@ -100,6 +100,9 @@ const apiTree: ApiNode[] = [
 ]
 
 const configStore = useConfigStore()
+
+// ── State ──
+const selectedNodeId = ref<string>('notion-inspect-database')
 const inputJson = ref('')
 const result = ref<unknown>(null)
 const responseStatus = ref<number | null>(null)
