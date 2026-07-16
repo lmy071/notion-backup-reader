@@ -9,20 +9,15 @@ interface ApiNode {
   method: string
   path: string
   description: string
+  /** JSON 入参模板（叶子节点切换时自动填入） */
+  defaultInput?: string
   children?: ApiNode[]
 }
 
-interface ApiResult {
-  status: number
-  ok: boolean
-  body: unknown
-}
-
-interface ApiResponse {
-  databaseId: string
-  schema: ApiResult
-  query: ApiResult
-}
+/** 预置的测试用 ID 占位符（根页面/子页面/数据库均可替换） */
+const DEMO_PAGE_ID = '34420a967459800d84ade3b4640bd7c6'
+const DEMO_DATABASE_ID = '39f20a96-7459-8034-817b-ef0afa00e7f0'
+const DEMO_BLOCK_ID = '34420a96-7459-800d-84ad-e3b4640bd7c6'
 
 const apiTree: ApiNode[] = [
   {
@@ -31,13 +26,20 @@ const apiTree: ApiNode[] = [
     method: 'GET',
     path: '/api/storage/index',
     description: '扫描所有备份批次',
+    defaultInput: '',
   },
   {
     id: 'storage-page',
     label: '读取页面',
     method: 'GET',
-    path: '/api/storage/page/{root}/{date}/{pageId}',
+    path: '/api/storage/page/{rootPageId}/{date}/{pageId}',
     description: '获取页面 JSON + children + databases + 子页面摘要',
+    defaultInput: `# 路径参数拼入 URL（非 JSON body）
+# URL 示例：/api/storage/page/${DEMO_PAGE_ID}/2026-07-15/${DEMO_PAGE_ID}
+# 下面字段仅供参考，实际由路由解析
+{
+  "comment": "GET 请求，参数在路径中，修改上方 URL 后替换"
+}`,
   },
   {
     id: 'notion-proxy',
@@ -51,51 +53,60 @@ const apiTree: ApiNode[] = [
         label: '测试连接',
         method: 'POST',
         path: '/api/notion/test-connection',
-        description: '验证 API Key 是否有效',
+        description: '验证 API Key 是否有效（无需请求体，token 从配置自动注入）',
+        defaultInput: '',
       },
       {
         id: 'notion-fetch-page',
         label: '获取页面',
         method: 'POST',
         path: '/api/notion/fetch-page',
-        description: '拉取 Notion 页面原始数据',
+        description: '拉取 Notion 页面原始数据（元数据 + 全量 blocks）',
+        defaultInput: JSON.stringify({ pageId: DEMO_PAGE_ID }, null, 2),
       },
       {
         id: 'notion-fetch-block-children',
         label: '获取块子节点',
         method: 'POST',
         path: '/api/notion/fetch-block-children',
-        description: '拉取 block 的 children',
+        description: '拉取指定 block 的子节点（单页，不支持递归）',
+        defaultInput: JSON.stringify({ blockId: DEMO_BLOCK_ID }, null, 2),
       },
       {
         id: 'notion-fetch-database',
         label: '查询数据库',
         method: 'POST',
         path: '/api/notion/fetch-database',
-        description: '查询数据库行数据',
+        description: '查询数据库全部行数据（page_size=100 自动分页）',
+        defaultInput: JSON.stringify({ databaseId: DEMO_DATABASE_ID }, null, 2),
       },
       {
         id: 'notion-fetch-database-schema',
         label: '获取数据库定义',
         method: 'POST',
         path: '/api/notion/fetch-database-schema',
-        description: '获取数据库 schema 定义',
+        description: '获取数据库的 schema 结构定义（列名、类型等）',
+        defaultInput: JSON.stringify({ databaseId: DEMO_DATABASE_ID }, null, 2),
       },
       {
         id: 'notion-inspect-database',
         label: '🔍 综合检查',
         method: 'POST',
         path: '/api/notion/inspect-database',
-        description: '同时获取 schema + query 原始响应，诊断数据库权限问题',
+        description: '同时返回 schema + query 原始响应，诊断权限/数据问题',
+        defaultInput: JSON.stringify({ databaseId: DEMO_DATABASE_ID }, null, 2),
       },
     ],
   },
   {
-    id: 'log',
+    id: 'storage-logs',
     label: '日志',
     method: 'GET',
     path: '/api/storage/logs',
-    description: '查询同步日志',
+    description: '查询同步日志（可按 date 参数过滤）',
+    defaultInput: `# 可选 query 参数：?date=YYYY-MM-DD
+# 示例 URL：/api/storage/logs?date=2026-07-15
+# 不传 date 则返回最近 10 个文件`,
   },
 ]
 
@@ -109,34 +120,48 @@ const responseStatus = ref<number | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-function expandNode(node: ApiNode): ApiNode[] {
-  if (node.children) {
-    // Non-leaf: don't execute, just toggle
-    return []
+/** 递归收集整棵树下所有节点（含子节点） */
+function findAllNodes(nodes: ApiNode[]): ApiNode[] {
+  const acc: ApiNode[] = []
+  for (const node of nodes) {
+    acc.push(node)
+    if (node.children) acc.push(...findAllNodes(node.children))
   }
-  selectNode(node)
-  return []
+  return acc
 }
 
+const selectedNode = computed(() => {
+  return findAllNodes(apiTree).find(n => n.id === selectedNodeId.value)
+})
+
+const isLeaf = computed(() => {
+  if (!selectedNode.value) return true
+  return !selectedNode.value.children
+})
+
+/** 叶子节点切换：填入入参模板，清空上次响应 */
 function selectNode(node: ApiNode) {
   selectedNodeId.value = node.id
-  // Clear previous results
   result.value = null
   responseStatus.value = null
   error.value = null
-
-  // Set default input for known endpoints
-  if (node.id === 'notion-inspect-database') {
-    if (!inputJson.value) {
-      inputJson.value = JSON.stringify({ databaseId: '39f20a96-7459-8034-817b-ef0afa00e7f0' }, null, 2)
-    }
-  } else if (node.id === 'notion-test-connection') {
-    inputJson.value = JSON.stringify({ apiKey: '' }, null, 2)
-  } else {
-    inputJson.value = ''
-  }
+  inputJson.value = node.defaultInput ?? ''
 }
 
+/** 树节点点击：叶子→填充模板；分组→仅切换选中 */
+function toggleExpand(node: ApiNode) {
+  if (node.children) {
+    selectedNodeId.value = node.id
+    inputJson.value = ''
+    result.value = null
+    responseStatus.value = null
+    error.value = null
+    return
+  }
+  selectNode(node)
+}
+
+/** 发送请求 */
 async function executeRequest() {
   const node = findAllNodes(apiTree).find(n => n.id === selectedNodeId.value)
   if (!node) return
@@ -185,37 +210,7 @@ async function executeRequest() {
   }
 }
 
-function findAllNodes(nodes: ApiNode[]): ApiNode[] {
-  const result: ApiNode[] = []
-  for (const node of nodes) {
-    result.push(node)
-    if (node.children) result.push(...findAllNodes(node.children))
-  }
-  return result
-}
-
-const selectedNode = computed(() => {
-  return findAllNodes(apiTree).find(n => n.id === selectedNodeId.value)
-})
-
-const isLeaf = computed(() => {
-  if (!selectedNode.value) return true
-  return !selectedNode.value.children
-})
-
-function toggleExpand(node: ApiNode) {
-  // For tree nodes with children, clicking selects them
-  if (node.children) {
-    selectedNodeId.value = node.id
-    inputJson.value = ''
-    result.value = null
-    responseStatus.value = null
-    error.value = null
-    return
-  }
-  selectNode(node)
-}
-
+/** Ctrl/Cmd + Enter 发送 */
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
     executeRequest()
@@ -252,7 +247,7 @@ const resultJsonString = computed(() => {
               v-if="node.children"
               class="text-xs"
               style="color: var(--c-text-tertiary); width: 12px"
-            >{{ node.id === selectedNodeId ? '▾' : '▸' }}</span>
+            >{{ selectedNodeId?.startsWith(node.id) ? '▾' : '▸' }}</span>
             <span v-else class="w-12px" />
             <span
               class="text-10px font-mono px-1 rounded"
@@ -262,7 +257,7 @@ const resultJsonString = computed(() => {
           </button>
 
           <!-- Children -->
-          <template v-if="node.children && selectedNodeId?.startsWith(node.id) || node.children && selectedNodeId === node.id">
+          <template v-if="node.children && selectedNodeId?.startsWith(node.id)">
             <button
               v-for="child in node.children"
               :key="child.id"
@@ -272,7 +267,7 @@ const resultJsonString = computed(() => {
                 backgroundColor: selectedNodeId === child.id ? 'var(--c-brand-light)' : 'transparent',
                 fontWeight: selectedNodeId === child.id ? 600 : 400,
               }"
-              @click="toggleExpand(child)"
+              @click="selectNode(child)"
             >
               <span
                 class="text-10px font-mono px-1 rounded"
@@ -300,11 +295,10 @@ const resultJsonString = computed(() => {
           v-if="isLeaf"
           class="px-4 py-1.5 rounded text-xs font-medium transition-colors cursor-pointer"
           style="background-color: var(--c-brand); color: #fff"
-          :disabled="loading || !apiKey"
-          :title="!apiKey ? '请先在配置页设置 API Key' : ''"
+          :disabled="loading"
           @click="executeRequest"
         >
-          {{ loading ? '请求中...' : (!apiKey ? '⚠ 请先设置 API Key' : '发送请求') }}
+          {{ loading ? '请求中...' : '发送请求' }}
         </button>
       </div>
 
@@ -315,8 +309,8 @@ const resultJsonString = computed(() => {
             <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--c-text-tertiary)">
               请求参数 (JSON)
             </span>
-            <span class="text-xs opacity-0" style="color: var(--c-text-tertiary)">
-              格式化
+            <span class="text-10px" style="color: var(--c-text-tertiary)">
+              Ctrl+Enter 发送
             </span>
           </div>
         </div>
