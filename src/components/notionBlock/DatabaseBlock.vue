@@ -18,6 +18,33 @@ const error = ref<string | null>(null)
 const drawerOpen = ref(false)
 const selectedRowId = ref<string | null>(null)
 
+// Filters
+const filterText = ref('')
+
+// Filtered rows based on search keyword
+const filteredRows = computed<NotionDatabaseRow[]>(() => {
+  if (!database.value) return []
+  const keyword = filterText.value.trim().toLowerCase()
+  if (!keyword) return database.value.rows
+
+  const cols = getColumnNames()
+  return database.value.rows.filter(row => {
+    return cols.some(col => {
+      const val = getCellText(row.properties[col.key])
+      return val.toLowerCase().includes(keyword)
+    })
+  })
+})
+
+const filterResultCount = computed(() => {
+  if (!database.value) return 0
+  return filteredRows.value.length
+})
+
+function clearFilter() {
+  filterText.value = ''
+}
+
 const selectedRow = computed<NotionDatabaseRow | null>(() => {
   if (!database.value || !selectedRowId.value) return null
   return database.value.rows.find(r => r.id === selectedRowId.value) ?? null
@@ -233,13 +260,52 @@ function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
 
     <!-- Database table -->
     <div v-else class="overflow-x-auto rounded-lg" style="border: 1px solid var(--c-table-border)">
-      <!-- Database title -->
+      <!-- Database title bar -->
       <div
-        v-if="database.title"
-        class="px-4 py-2 text-sm font-medium"
-        style="background-color: var(--c-table-header-bg); color: var(--c-text-secondary); border-bottom: 1px solid var(--c-table-border)"
+        class="flex items-center justify-between px-4 py-2"
+        style="background-color: var(--c-table-header-bg); border-bottom: 1px solid var(--c-table-border)"
       >
-        {{ database.title }}
+        <span
+          v-if="database.title"
+          class="text-sm font-medium shrink-0"
+          style="color: var(--c-text-secondary)"
+        >
+          {{ database.title }}
+        </span>
+        <span v-else class="shrink-0" />
+
+        <!-- Filter input -->
+        <div class="flex items-center gap-2">
+          <div
+            v-if="filterResultCount !== database.rows.length"
+            class="text-xs shrink-0"
+            style="color: var(--c-text-tertiary)"
+          >
+            {{ filterResultCount }} / {{ database.rows.length }}
+          </div>
+          <div class="relative">
+            <input
+              v-model="filterText"
+              type="text"
+              placeholder="过滤…"
+              class="text-xs rounded border px-2 py-1 outline-none transition-colors"
+              :style="{
+                width: '140px',
+                backgroundColor: 'var(--c-bg)',
+                color: 'var(--c-text)',
+                borderColor: filterText ? 'var(--c-brand)' : 'var(--c-border)',
+              }"
+            />
+            <button
+              v-if="filterText"
+              class="absolute right-1 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full text-xs leading-none cursor-pointer"
+              style="color: var(--c-text-tertiary)"
+              @click="clearFilter"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="overflow-x-auto" style="max-height: 480px; overflow-y: auto">
@@ -258,7 +324,7 @@ function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
           </thead>
           <tbody>
             <tr
-              v-for="(row, rowIdx) in database.rows"
+              v-for="(row, rowIdx) in filteredRows"
               :key="row.id"
               class="cursor-pointer transition-colors"
               :style="{
@@ -274,6 +340,16 @@ function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
                 style="color: var(--c-text)"
               >
                 {{ getCellText(row.properties[col.key]) }}
+              </td>
+            </tr>
+            <!-- No results after filter -->
+            <tr v-if="filterText && filteredRows.length === 0">
+              <td
+                :colspan="getColumnNames().length"
+                class="px-4 py-8 text-center text-sm"
+                style="color: var(--c-text-tertiary)"
+              >
+                无匹配结果
               </td>
             </tr>
           </tbody>
