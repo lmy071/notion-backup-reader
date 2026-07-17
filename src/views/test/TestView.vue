@@ -111,15 +111,14 @@ const apiTree: ApiNode[] = [
   {
     id: 'storage-db-delete',
     label: '🗑 清空数据库',
-    method: 'DELETE',
-    path: '/api/storage/database/{rootPageId}/{date}/{pageId}/{databaseId}',
-    description: '清空指定数据库的全部行数据（保留 schema 结构）',
-    defaultInput: `# DELETE 请求，路径参数拼入 URL
-# URL 示例：/api/storage/database/${DEMO_PAGE_ID}/2026-07-17/${DEMO_PAGE_ID}/3a020a96-7459-80a8-af9c-ff81b1e23912
-# 下面字段仅供参考，实际由路由解析
-{
-  "comment": "路径参数在 URL 中"
-}`,
+    method: 'POST',
+    path: '/api/notion/clear-database',
+    description: '调用 Notion API 逐行 archive 清空数据库全部行',
+    defaultInput: JSON.stringify(
+      { databaseId: DEMO_DATABASE_ID },
+      null,
+      2,
+    ),
   },
 ]
 

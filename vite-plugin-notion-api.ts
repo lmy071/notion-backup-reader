@@ -416,27 +416,6 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(db)
   }
 
-  // ── DELETE /api/storage/database/:rootPageId/:date/:pageId/:databaseId — 清空数据库数据 ──
-  if (method === 'DELETE' && path.startsWith('/api/storage/database/')) {
-    if (segments.length < 7) return errorResponse('Invalid path', 400)
-    const rootPageId = segments[3]
-    const date = segments[4]
-    const pageId = normalizePageId(segments[5])
-    const databaseId = segments[6]
-
-    const dbPath = join(JSON_DIR, rootPageId, date, pageId, 'databases', `${databaseId}.json`)
-    const db = await readJsonSafe(dbPath) as Record<string, unknown> | null
-    if (!db) return jsonResponse({ error: 'Database not found' }, 404)
-    if (!db.results || !Array.isArray(db.results)) {
-      return jsonResponse({ ok: true, rowsBefore: 0, rowsAfter: 0 })
-    }
-
-    const rowsBefore = (db.results as unknown[]).length
-    const cleared = { ...db, results: [] }
-    await writeJson(dbPath, cleared)
-    return jsonResponse({ ok: true, rowsBefore, rowsAfter: 0 })
-  }
-
   // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId — 反向链接 ──
   if (method === 'GET' && path.startsWith('/api/storage/backlinks/')) {
     if (segments.length < 6) return errorResponse('Invalid path', 400)
@@ -718,6 +697,74 @@ async function handleNotionProxy(req: Request): Promise<Response> {
           ok: queryRes.ok,
           body: tryJsonParse(queryText),
         },
+      })
+    }
+
+    // ── POST /api/notion/clear-database — 清空数据库全部行（调用 Notion API archive） ──
+    if (method === 'POST' && path === '/api/notion/clear-database') {
+      const body = await req.json() as { databaseId: string }
+      const { databaseId } = body
+
+      // 1. 查询所有行
+      const results: unknown[] = []
+      let hasMore = true
+      let startCursor: string | undefined
+      while (hasMore) {
+        const queryBody: Record<string, unknown> = { page_size: 100 }
+        if (startCursor) queryBody.start_cursor = startCursor
+        const queryRes = await fetch(
+          `${NOTION_API_BASE}/databases/${databaseId}/query`,
+          { method: 'POST', headers: commonHeaders, body: JSON.stringify(queryBody) },
+        )
+        if (!queryRes.ok) {
+          const err = await queryRes.text()
+          return jsonResponse({ error: `Failed to query: ${queryRes.status} ${err}` }, 502)
+        }
+        const page = await queryRes.json() as Record<string, unknown>
+        const rows = (page.results as unknown[]) ?? []
+        results.push(...rows)
+        hasMore = Boolean(page.has_more)
+        startCursor = page.next_cursor as string | undefined
+      }
+
+      const totalRows = results.length
+      if (totalRows === 0) {
+        return jsonResponse({ ok: true, archived: 0, total: 0 })
+      }
+
+      // 2. 逐行 archive（Notion API 不支持批量删除）
+      const errors: Array<{ pageId: string; error: string }> = []
+      const DELAY_MS = 334 // Notion API 速率限制 ~3 req/s
+      for (let i = 0; i < totalRows; i++) {
+        const row = results[i] as Record<string, unknown>
+        const pageId = row.id as string
+        try {
+          const archiveRes = await fetch(
+            `${NOTION_API_BASE}/pages/${pageId}`,
+            {
+              method: 'PATCH',
+              headers: commonHeaders,
+              body: JSON.stringify({ archived: true }),
+            },
+          )
+          if (!archiveRes.ok) {
+            const err = await archiveRes.text()
+            errors.push({ pageId, error: `${archiveRes.status} ${err}` })
+          }
+        } catch (e) {
+          errors.push({ pageId, error: e instanceof Error ? e.message : String(e) })
+        }
+        // 速率限制延迟
+        if (i < totalRows - 1) {
+          await new Promise(r => setTimeout(r, DELAY_MS))
+        }
+      }
+
+      return jsonResponse({
+        ok: errors.length === 0,
+        archived: totalRows - errors.length,
+        total: totalRows,
+        errors: errors.length > 0 ? errors : undefined,
       })
     }
 
