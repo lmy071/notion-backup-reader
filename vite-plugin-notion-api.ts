@@ -325,9 +325,9 @@ async function handleRequest(req: Request): Promise<Response> {
   if (method === 'GET' && path.startsWith('/api/storage/page/')) {
     // segments = ['api','storage','page','rootPageId','date','pageId',...]
     if (segments.length < 6) return errorResponse('Invalid path', 400)
-    const rootPageId = normalizePageId(segments[3])
+    const rootPageId = segments[3] // 根目录保持 32 位 hex 格式
     const date = segments[4]
-    const pageId = normalizePageId(segments.slice(5).join('/'))
+    const pageId = normalizePageId(segments.slice(5).join('/')) // 子页面目录是 UUID 破折号格式
 
     // 读取页面的 page.json
     const pageDir = join(JSON_DIR, rootPageId, date, pageId)
@@ -365,7 +365,7 @@ async function handleRequest(req: Request): Promise<Response> {
   // ── GET /api/storage/batch-index/:rootPageId/:date — 批次索引 ──
   if (method === 'GET' && path.startsWith('/api/storage/batch-index/')) {
     if (segments.length < 6) return errorResponse('Invalid path', 400)
-    const rootPageId = normalizePageId(segments[3])
+    const rootPageId = segments[3] // 根目录 32 位 hex
     const date = segments[4]
     const indexFile = join(JSON_DIR, rootPageId, date, 'index.json')
     const index = await readJsonSafe(indexFile)
@@ -390,9 +390,9 @@ async function handleRequest(req: Request): Promise<Response> {
   // ── GET /api/storage/database/:rootPageId/:date/:pageId/:databaseId — 读取数据库 ──
   if (method === 'GET' && path.startsWith('/api/storage/database/')) {
     if (segments.length < 7) return errorResponse('Invalid path', 400)
-    const rootPageId = normalizePageId(segments[3])
+    const rootPageId = segments[3] // 根目录 32 位 hex
     const date = segments[4]
-    const pageId = normalizePageId(segments[5])
+    const pageId = normalizePageId(segments[5]) // 子目录 UUID 破折号
     const databaseId = segments[6]
 
     const dbPath = join(JSON_DIR, rootPageId, date, pageId, 'databases', `${databaseId}.json`)
@@ -404,9 +404,9 @@ async function handleRequest(req: Request): Promise<Response> {
   // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId — 反向链接 ──
   if (method === 'GET' && path.startsWith('/api/storage/backlinks/')) {
     if (segments.length < 6) return errorResponse('Invalid path', 400)
-    const rootPageId = normalizePageId(segments[3])
+    const rootPageId = segments[3] // 根目录 32 位 hex
     const date = segments[4]
-    const pageId = normalizePageId(segments.slice(5).join('/'))
+    const pageId = normalizePageId(segments.slice(5).join('/')) // 子页面 UUID
     return jsonResponse(await buildBacklinks(rootPageId, date, pageId))
   }
 
@@ -419,7 +419,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // ── DELETE /api/storage/remove/:rootPageId — 删除整个根页面备份 ──
   if (method === 'DELETE' && path.startsWith('/api/storage/remove/')) {
-    const rootPageId = normalizePageId(segments[3])
+    const rootPageId = segments[3] // 根目录 32 位 hex
     const rootDir = join(JSON_DIR, rootPageId)
     if (existsSync(rootDir)) {
       await rmRecursive(rootDir)
