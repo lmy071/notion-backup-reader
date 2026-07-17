@@ -245,9 +245,10 @@ function exportXlsx() {
 
   // 列宽自适应（取表头与最长数据值的较大者，上限 40）
   ws['!cols'] = cols.map((c, ci) => {
+    const colKey = cols[ci].key
     const maxLen = Math.max(
       c.name.length,
-      ...rows.map(row => getCellText(row.properties[col.key]).length),
+      ...rows.map(row => getCellText(row.properties[colKey]).length),
     )
     return { wch: Math.min(maxLen + 3, 40) }
   })
