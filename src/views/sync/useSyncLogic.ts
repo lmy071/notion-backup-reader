@@ -60,14 +60,34 @@ export function useSyncLogic() {
     logMessages.value.push(msg)
   }
 
-  /** 待刷新的日志缓冲区 — 逐字 SSE 流到达时的暂存 */
-  let pendingLine = ''
+  /** 打字机缓冲 — 当前正在构建的行内容 */
+  let currentLine = ''
+  /** 已经确认完成的固定行数 */
+  let committedCount = 0
   let rafId = 0
 
-  function flushPendingLine() {
-    if (pendingLine) {
-      logMessages.value.push(pendingLine)
-      pendingLine = ''
+  /**
+   * 逐字到达时调用。将字符拼入 currentLine，
+   * 通过 RAF 以最大帧率更新 UI，产生打字机效果。
+   */
+  function onLogChar(chunk: string) {
+    currentLine += chunk
+    scheduleFlush()
+  }
+
+  /**
+   * 一行结束时调用。将当前行固定到日志数组，开始新行。
+   */
+  function onLogLineEnd() {
+    if (currentLine) {
+      logMessages.value.push(currentLine)
+      committedCount++
+      currentLine = ''
+    }
+    // 空行也占位
+    if (!currentLine && logMessages.value.length === committedCount) {
+      logMessages.value.push('')
+      committedCount++
     }
   }
 
@@ -75,10 +95,15 @@ export function useSyncLogic() {
     if (rafId) return
     rafId = requestAnimationFrame(() => {
       rafId = 0
-      if (pendingLine) {
-        logMessages.value = [...logMessages.value, pendingLine]
-        pendingLine = ''
+      const msgs = logMessages.value
+      // 如果还没有固定行，推入第一行
+      if (committedCount === 0 && msgs.length === 0) {
+        logMessages.value = [currentLine]
+        return
       }
+      // 删除旧打字行，追加新打字行
+      const fixed = msgs.slice(0, committedCount)
+      logMessages.value = currentLine ? [...fixed, currentLine] : fixed
     })
   }
 
@@ -104,11 +129,14 @@ export function useSyncLogic() {
           { pageIds: allIds, apiKey: config.apiKey },
           {
             onLog(chunk) {
-              pendingLine += chunk
-              scheduleFlush()
+              if (chunk === '\n') {
+                onLogLineEnd()
+              } else {
+                onLogChar(chunk)
+              }
             },
             onFlush() {
-              flushPendingLine()
+              // no-op: RAF 已在流式更新中处理
             },
             onTask(task) {
               const map = new Map(taskMap.value)
