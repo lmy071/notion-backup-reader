@@ -268,190 +268,201 @@ function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
 async function exportXlsx() {
   if (!database.value || database.value.rows.length === 0) return
 
-  const ExcelJS = await import('exceljs')
-  const JSZip = await import('jszip')
+  try {
+    const ExcelJS = await import('exceljs')
+    const JSZipMod = await import('jszip')
+    const JSZip = JSZipMod.default || JSZipMod
 
-  const cols = getColumnNames()
-  const rows = filteredRows.value
-  const filesCols = cols.filter(c => c.type === 'files')
+    const cols = getColumnNames()
+    const rows = filteredRows.value
+    const filesCols = cols.filter(c => c.type === 'files')
 
-  // ── 预取图片：url → { buffer, ext, localId } ──
-  const imageRegistry = new Map<string, { buffer: ArrayBuffer; ext: string; localId: number }>()
-  let nextImageId = 1
+    // ── 预取图片：url → { buffer, ext, localId } ──
+    const imageRegistry = new Map<string, { buffer: ArrayBuffer; ext: string; localId: number }>()
+    let nextImageId = 1
 
-  if (filesCols.length > 0) {
-    await Promise.all(
-      rows.flatMap(row =>
-        filesCols.flatMap(col => {
+    if (filesCols.length > 0) {
+      await Promise.all(
+        rows.flatMap(row =>
+          filesCols.flatMap(col => {
+            const val = row.properties[col.key]
+            if (val?.type !== 'files') return []
+            return (val.files ?? [])
+              .map(f => f.file?.url ?? f.external?.url ?? '')
+              .filter(url => url && !imageRegistry.has(url))
+              .map(async url => {
+                try {
+                  const resp = await fetch(url)
+                  if (resp.ok) {
+                    const buffer = await resp.arrayBuffer()
+                    const ext = (url.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'png')
+                    imageRegistry.set(url, { buffer, ext, localId: nextImageId++ })
+                  }
+                } catch { /* image fetch failed, skip */ }
+              })
+          })
+        )
+      )
+    }
+
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'Notion Reader'
+    const sheetName = (database.value.title || 'Sheet1').slice(0, 31)
+    const ws = wb.addWorksheet(sheetName)
+
+    // ── 表头行 ──
+    const headerRow = ws.addRow(cols.map(c => c.name))
+    headerRow.eachCell(cell => {
+      cell.font = { bold: true, size: 11 }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } }
+      cell.alignment = { vertical: 'middle', horizontal: 'center' }
+    })
+
+    // ── 生成图片 GUID（基于 buffer 前 16 字节） ──
+    const imageEntries: Array<{ guid: string; ext: string; buffer: ArrayBuffer; localId: number }> = []
+    const imageGuidMap = new Map<string, string>() // url → GUID
+    for (const [url, info] of imageRegistry) {
+      const hashBytes = new Uint8Array(info.buffer).slice(0, 16)
+      const guid = 'ID_' + Array.from(hashBytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('')
+        .toUpperCase()
+      imageEntries.push({ guid, ext: info.ext, buffer: info.buffer, localId: info.localId })
+      imageGuidMap.set(url, guid)
+    }
+
+    // ── 数据行 ──
+    const IMG_SIZE = 160 // px
+    for (const [ri, row] of rows.entries()) {
+      const excelRow = ws.addRow(
+        cols.map(col => {
           const val = row.properties[col.key]
-          if (val?.type !== 'files') return []
-          return (val.files ?? [])
-            .map(f => f.file?.url ?? f.external?.url ?? '')
-            .filter(url => url && !imageRegistry.has(url))
-            .map(async url => {
-              try {
-                const resp = await fetch(url)
-                if (resp.ok) {
-                  const buffer = await resp.arrayBuffer()
-                  const ext = (url.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'png')
-                  imageRegistry.set(url, { buffer, ext, localId: nextImageId++ })
-                }
-              } catch { /* image fetch failed, skip */ }
-            })
+          if (val?.type === 'files') {
+            return (val.files ?? []).map(f => f.name).join('\n')
+          }
+          return getCellText(val)
         })
       )
-    )
-  }
+      if (filesCols.length > 0) {
+        excelRow.height = IMG_SIZE * 0.75
+      }
 
-  const wb = new ExcelJS.Workbook()
-  wb.creator = 'Notion Reader'
-  const sheetName = (database.value.title || 'Sheet1').slice(0, 31)
-  const ws = wb.addWorksheet(sheetName)
-
-  // ── 表头行 ──
-  const headerRow = ws.addRow(cols.map(c => c.name))
-  headerRow.eachCell(cell => {
-    cell.font = { bold: true, size: 11 }
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } }
-    cell.alignment = { vertical: 'middle', horizontal: 'center' }
-  })
-
-  // ── 生成图片 GUID（基于 buffer 前 16 字节） ──
-  const imageEntries: Array<{ guid: string; ext: string; buffer: ArrayBuffer; localId: number }> = []
-  const imageGuidMap = new Map<string, string>() // url → GUID
-  for (const [url, info] of imageRegistry) {
-    const hashBytes = new Uint8Array(info.buffer).slice(0, 16)
-    const guid = 'ID_' + Array.from(hashBytes)
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('')
-      .toUpperCase()
-    imageEntries.push({ guid, ext: info.ext, buffer: info.buffer, localId: info.localId })
-    imageGuidMap.set(url, guid)
-  }
-
-  // ── 数据行 ──
-  const IMG_SIZE = 160 // px
-  for (const [ri, row] of rows.entries()) {
-    const excelRow = ws.addRow(
-      cols.map(col => {
+      // 图片列写入 DISPIMG 公式
+      for (const [ci, col] of cols.entries()) {
         const val = row.properties[col.key]
-        if (val?.type === 'files') {
-          return (val.files ?? []).map(f => f.name).join('\n')
-        }
-        return getCellText(val)
+        if (val?.type !== 'files') continue
+        const files = val.files ?? []
+        if (files.length === 0) continue
+
+        const url = files[0].file?.url ?? files[0].external?.url ?? ''
+        const guid = imageGuidMap.get(url)
+        if (!guid) continue
+
+        const cell = excelRow.getCell(ci + 1)
+        cell.value = { formula: `_xlfn.DISPIMG("${guid}",1)` }
+
+        ws.getColumn(ci + 1).width = Math.max(22, 14)
+      }
+
+      excelRow.eachCell(cell => {
+        cell.alignment = { vertical: 'middle', wrapText: true }
       })
-    )
-    if (filesCols.length > 0) {
-      excelRow.height = IMG_SIZE * 0.75
     }
 
-    // 图片列写入 DISPIMG 公式
+    // ── 列宽（非图片列） ──
     for (const [ci, col] of cols.entries()) {
-      const val = row.properties[col.key]
-      if (val?.type !== 'files') continue
-      const files = val.files ?? []
-      if (files.length === 0) continue
-
-      const url = files[0].file?.url ?? files[0].external?.url ?? ''
-      const guid = imageGuidMap.get(url)
-      if (!guid) continue
-
-      const cell = excelRow.getCell(ci + 1)
-      cell.value = { formula: `_xlfn.DISPIMG("${guid}",1)`, shareType: 'shared' }
-
-      ws.getColumn(ci + 1).width = Math.max(22, 14)
+      if (col.type === 'files') continue
+      const dataLengths = rows.map(row => getCellText(row.properties[col.key]).length)
+      const maxLen = Math.max(col.name.length, ...dataLengths)
+      ws.getColumn(ci + 1).width = Math.min((maxLen + 3) * 2, 80)
     }
 
-    excelRow.eachCell(cell => {
-      cell.alignment = { vertical: 'middle', wrapText: true }
-    })
+    // ── 生成 xlsx 并注入 cellimages ──
+    const xlsxBuffer = await wb.xlsx.writeBuffer()
+    const zip = await JSZip.loadAsync(xlsxBuffer)
+
+    if (imageEntries.length > 0) {
+      // 构建 cellimages.xml.rels
+      const relsLines = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+      ]
+      for (const entry of imageEntries) {
+        relsLines.push(
+          `  <Relationship Id="rId${entry.localId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${entry.localId}.${entry.ext}"/>`
+        )
+      }
+      relsLines.push('</Relationships>')
+      zip.file('xl/_rels/cellimages.xml.rels', relsLines.join('\n'))
+
+      // 构建 cellimages.xml
+      const cellImagesLines = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<etc:cellImages xmlns:etc="http://www.wps.cn/officeDocument/2017/etCustomData"',
+        '  xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"',
+        '  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"',
+        '  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+      ]
+      let cNvPrId = 2
+      for (const entry of imageEntries) {
+        cellImagesLines.push(
+          `  <etc:cellImage>`,
+          `    <xdr:pic>`,
+          `      <xdr:nvPicPr>`,
+          `        <xdr:cNvPr id="${cNvPrId}" name="${entry.guid}"/>`,
+          `        <xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr>`,
+          `      </xdr:nvPicPr>`,
+          `      <xdr:blipFill>`,
+          `        <a:blip r:embed="rId${entry.localId}"/>`,
+          `        <a:stretch><a:fillRect/></a:stretch>`,
+          `      </xdr:blipFill>`,
+          `      <xdr:spPr>`,
+          `        <a:xfrm><a:off x="0" y="0"/><a:ext cx="952500" cy="952500"/></a:xfrm>`,
+          `        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`,
+          `        <a:noFill/><a:ln w="9525"><a:noFill/></a:ln>`,
+          `      </xdr:spPr>`,
+          `    </xdr:pic>`,
+          `  </etc:cellImage>`
+        )
+        cNvPrId += 2
+      }
+      cellImagesLines.push('</etc:cellImages>')
+      zip.file('xl/cellimages.xml', cellImagesLines.join('\n'))
+
+      // 添加图片文件到 xl/media/
+      for (const entry of imageEntries) {
+        zip.file(`xl/media/image${entry.localId}.${entry.ext}`, entry.buffer, { binary: true })
+      }
+
+      // 更新 [Content_Types].xml：添加图片 MIME 类型
+      const contentTypesFile = zip.file('[Content_Types].xml')
+      if (contentTypesFile) {
+        const contentTypesXml = await contentTypesFile.async('text')
+        const extraDefaults = new Set<string>()
+        for (const entry of imageEntries) {
+          extraDefaults.add(`<Default Extension="${entry.ext}" ContentType="image/${entry.ext === 'jpg' ? 'jpeg' : entry.ext}"/>`)
+        }
+        const updatedContentTypes = contentTypesXml.replace(
+          '</Types>',
+          [...extraDefaults].join('\n') + '\n</Types>'
+        )
+        zip.file('[Content_Types].xml', updatedContentTypes)
+      }
+    }
+
+    // ── 下载 ──
+    const finalBuffer = await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' })
+    const fileName = `${(database.value.title || 'export').replace(/[\\/:*?"<>|]/g, '_')}.xlsx`
+    const blob = new Blob([finalBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = fileName
+    link.click()
+    URL.revokeObjectURL(link.href)
+  } catch (e) {
+    console.error('导出失败:', e)
+    alert(`导出失败: ${e instanceof Error ? e.message : String(e)}`)
   }
-
-  // ── 列宽（非图片列） ──
-  for (const [ci, col] of cols.entries()) {
-    if (col.type === 'files') continue
-    const dataLengths = rows.map(row => getCellText(row.properties[col.key]).length)
-    const maxLen = Math.max(col.name.length, ...dataLengths)
-    ws.getColumn(ci + 1).width = Math.min((maxLen + 3) * 2, 80)
-  }
-
-  // ── 生成 xlsx 并注入 cellimages ──
-  const xlsxBuffer = await wb.xlsx.writeBuffer()
-  const zip = await JSZip.default.loadAsync(xlsxBuffer)
-
-  // 构建 cellimages.xml.rels
-  const relsLines = [
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
-    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
-  ]
-  for (const entry of imageEntries) {
-    relsLines.push(
-      `  <Relationship Id="rId${entry.localId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${entry.localId}.${entry.ext}"/>`
-    )
-  }
-  relsLines.push('</Relationships>')
-  zip.file('xl/_rels/cellimages.xml.rels', relsLines.join('\n'))
-
-  // 构建 cellimages.xml
-  const cellImagesLines = [
-    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
-    '<etc:cellImages xmlns:etc="http://www.wps.cn/officeDocument/2017/etCustomData"',
-    '  xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"',
-    '  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"',
-    '  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
-  ]
-  let cNvPrId = 2
-  for (const entry of imageEntries) {
-    cellImagesLines.push(
-      `  <etc:cellImage>`,
-      `    <xdr:pic>`,
-      `      <xdr:nvPicPr>`,
-      `        <xdr:cNvPr id="${cNvPrId}" name="${entry.guid}"/>`,
-      `        <xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr>`,
-      `      </xdr:nvPicPr>`,
-      `      <xdr:blipFill>`,
-      `        <a:blip r:embed="rId${entry.localId}"/>`,
-      `        <a:stretch><a:fillRect/></a:stretch>`,
-      `      </xdr:blipFill>`,
-      `      <xdr:spPr>`,
-      `        <a:xfrm><a:off x="0" y="0"/><a:ext cx="952500" cy="952500"/></a:xfrm>`,
-      `        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`,
-      `        <a:noFill/><a:ln w="9525"><a:noFill/></a:ln>`,
-      `      </xdr:spPr>`,
-      `    </xdr:pic>`,
-      `  </etc:cellImage>`
-    )
-    cNvPrId += 2
-  }
-  cellImagesLines.push('</etc:cellImages>')
-  zip.file('xl/cellimages.xml', cellImagesLines.join('\n'))
-
-  // 添加图片文件到 xl/media/
-  for (const entry of imageEntries) {
-    zip.file(`xl/media/image${entry.localId}.${entry.ext}`, entry.buffer, { binary: true })
-  }
-
-  // 更新 [Content_Types].xml：添加图片 MIME 类型
-  const contentTypesXml = await zip.file('[Content_Types].xml')!.async('text')
-  const extraDefaults = new Set<string>()
-  for (const entry of imageEntries) {
-    extraDefaults.add(`<Default Extension="${entry.ext}" ContentType="image/${entry.ext === 'jpg' ? 'jpeg' : entry.ext}"/>`)
-  }
-  const updatedContentTypes = contentTypesXml.replace(
-    '</Types>',
-    [...extraDefaults].join('\n') + '\n</Types>'
-  )
-  zip.file('[Content_Types].xml', updatedContentTypes)
-
-  // ── 下载 ──
-  const finalBuffer = await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' })
-  const fileName = `${(database.value.title || 'export').replace(/[\\/:*?"<>|]/g, '_')}.xlsx`
-  const blob = new Blob([finalBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(blob)
-  link.download = fileName
-  link.click()
-  URL.revokeObjectURL(link.href)
 }
 
 // ── 导入 Excel ────────────────────────────────────────────
