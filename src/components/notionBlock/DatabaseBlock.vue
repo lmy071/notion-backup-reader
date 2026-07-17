@@ -2,7 +2,6 @@
 import { ref, computed, inject, watch, type Ref } from 'vue'
 import type { NotionBlock, NotionDatabase, DatabasePropertyValue, NotionDatabaseRow, DatabasePropertyConfig } from '@/types/notion'
 import { storage } from '@/services/storage'
-import * as XLSX from 'xlsx'
 
 const props = defineProps<{
   block: NotionBlock
@@ -246,50 +245,125 @@ function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
 }
 
 /** 导出当前数据为 xlsx 文件并触发下载 */
-function exportXlsx() {
+async function exportXlsx() {
   if (!database.value || database.value.rows.length === 0) return
+
+  const ExcelJS = await import('exceljs')
 
   const cols = getColumnNames()
   const rows = filteredRows.value
+  const filesCols = cols.filter(c => c.type === 'files')
 
-  // 构建二维数组：[表头行, ...数据行]
-  const aoa: string[][] = [
-    cols.map(c => c.name),
-    ...rows.map(row =>
+  // 提前收集所有图片 URL，批量 fetch 为 buffer
+  const imageCache = new Map<string, ArrayBuffer | null>()
+  if (filesCols.length > 0) {
+    await Promise.all(
+      rows.flatMap(row =>
+        filesCols.flatMap(col => {
+          const val = row.properties[col.key]
+          if (val?.type !== 'files') return []
+          return (val.files ?? [])
+            .map(f => f.file?.url ?? f.external?.url ?? '')
+            .filter(url => url && !imageCache.has(url))
+            .map(async url => {
+              try {
+                const resp = await fetch(url)
+                if (resp.ok) {
+                  imageCache.set(url, await resp.arrayBuffer())
+                } else {
+                  imageCache.set(url, null)
+                }
+              } catch {
+                imageCache.set(url, null)
+              }
+            })
+        })
+      )
+    )
+  }
+
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'Notion Reader'
+  const sheetName = (database.value.title || 'Sheet1').slice(0, 31)
+  const ws = wb.addWorksheet(sheetName)
+
+  // ── 表头行 ──
+  const headerRow = ws.addRow(cols.map(c => c.name))
+  headerRow.eachCell(cell => {
+    cell.font = { bold: true, size: 11 }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } }
+    cell.alignment = { vertical: 'middle', horizontal: 'center' }
+  })
+
+  // ── 数据行 ──
+  const IMG_SIZE = 160  // px
+  for (const [ri, row] of rows.entries()) {
+    const excelRow = ws.addRow(
       cols.map(col => {
         const val = row.properties[col.key]
-        // files 类型导出 URL
         if (val?.type === 'files') {
-          return (val.files ?? []).map(f => f.file?.url ?? f.external?.url ?? '').join('\n')
+          // files 列写文件名文本（图片用 addImage 嵌入）
+          return (val.files ?? []).map(f => f.name).join('\n')
         }
         return getCellText(val)
       })
-    ),
-  ]
+    )
+    // 设置行高以容纳图片
+    if (filesCols.length > 0) {
+      excelRow.height = IMG_SIZE * 0.75  // px → pt 近似
+    }
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa)
-
-  // 列宽自适应（取表头与最长数据值的较大者，×2 放宽，上限 80）
-  ws['!cols'] = cols.map((c, ci) => {
-    const colKey = cols[ci].key
-    // files 列取实际导出文本长度（URL/文件名），其他列走 getCellText
-    const dataLengths = rows.map(row => {
-      const val = row.properties[colKey]
-      if (val?.type === 'files') {
-        return (val.files ?? []).map(f => f.file?.url ?? f.external?.url ?? f.name).join('\n').length
+    // 嵌入图片
+    for (const [ci, col] of cols.entries()) {
+      const val = row.properties[col.key]
+      if (val?.type !== 'files') continue
+      const files = val.files ?? []
+      for (const [fi, f] of files.entries()) {
+        const url = f.file?.url ?? f.external?.url ?? ''
+        if (!url) continue
+        const buf = imageCache.get(url)
+        if (!buf) continue
+        // 从 URL 推断扩展名
+        const ext = (url.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'png') as 'jpeg' | 'png' | 'gif'
+        const imageId = wb.addImage({
+          buffer: buf as unknown as Buffer,
+          extension: ext,
+        })
+        // 多张图片水平并排摆放
+        ws.addImage(imageId, {
+          tl: { col: ci, row: ri + 1 },  // +1 因为表头占 row 0
+          ext: { width: IMG_SIZE - 16, height: IMG_SIZE - 16 },
+          editAs: 'oneCell',
+        })
       }
-      return getCellText(val).length
+      // 设置图片列宽（放宽容纳图片）
+      const fileCount = files.length
+      ws.getColumn(ci + 1).width = Math.max(fileCount * 22, 14)
+    }
+
+    // 对齐
+    excelRow.eachCell(cell => {
+      cell.alignment = { vertical: 'middle', wrapText: true }
     })
-    const maxLen = Math.max(c.name.length, ...dataLengths)
-    return { wch: Math.min((maxLen + 3) * 2, 80) }
-  })
+  }
 
-  const wb = XLSX.utils.book_new()
-  const sheetName = (database.value.title || 'Sheet1').slice(0, 31)
-  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  // ── 列宽（非图片列按文本长度 ×2） ──
+  for (const [ci, col] of cols.entries()) {
+    if (col.type === 'files') continue  // 图片列已在上面设宽
+    const dataLengths = rows.map(row => getCellText(row.properties[col.key]).length)
+    const maxLen = Math.max(col.name.length, ...dataLengths)
+    ws.getColumn(ci + 1).width = Math.min((maxLen + 3) * 2, 80)
+  }
 
+  // ── 写入文件 ──
   const fileName = `${(database.value.title || 'export').replace(/[\\/:*?"<>|]/g, '_')}.xlsx`
-  XLSX.writeFile(wb, fileName)
+  const buffer = await wb.xlsx.writeBuffer()
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(link.href)
 }
 </script>
 

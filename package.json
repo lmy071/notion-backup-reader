@@ -11,6 +11,7 @@
   "dependencies": {
     "@unocss/preset-uno": "^66.7.4",
     "@unocss/transformer-directives": "^66.7.4",
+    "exceljs": "^4.4.0",
     "highlight.js": "^11.11.1",
     "katex": "^0.17.0",
     "pinia": "^3.0.4",
