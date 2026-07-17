@@ -89,6 +89,86 @@ export const storage = {
     }
   },
 
+  /**
+   * SSE 流式保存 — 实时推送进度事件。
+   * 返回 AbortController 用于取消。
+   */
+  saveSyncResultSSE(
+    rootPageId: string,
+    pages: Array<{ page: NotionPage; children?: Record<string, NotionPage>; databases?: Array<{ databaseId: string; database: NotionDatabase }> }>,
+    onProgress: (event: {
+      type: 'progress' | 'done' | 'error'
+      stage?: string
+      pageId?: string
+      pageTitle?: string
+      message?: string
+      step?: number
+      total?: number
+    }) => void,
+  ): AbortController {
+    const controller = new AbortController()
+
+    fetch(`${API_BASE}/save-sse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rootPageId, pages }),
+      signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok) {
+        onProgress({ type: 'error', message: `HTTP ${response.status}: ${response.statusText}` })
+        return
+      }
+      const reader = response.body?.getReader()
+      if (!reader) {
+        onProgress({ type: 'error', message: 'ReadableStream not supported' })
+        return
+      }
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          let currentEvent = ''
+          let currentData = ''
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7)
+            } else if (line.startsWith('data: ')) {
+              currentData = line.slice(6)
+            } else if (line === '' && currentEvent && currentData) {
+              try {
+                const parsed = JSON.parse(currentData)
+                onProgress({ type: currentEvent as 'progress' | 'done' | 'error', ...parsed })
+              } catch {
+                // skip malformed JSON
+              }
+              currentEvent = ''
+              currentData = ''
+            }
+          }
+        }
+      } catch (e) {
+        if (!controller.signal.aborted) {
+          onProgress({ type: 'error', message: e instanceof Error ? e.message : String(e) })
+        }
+      }
+    }).catch((e) => {
+      if (!controller.signal.aborted) {
+        onProgress({ type: 'error', message: e instanceof Error ? e.message : String(e) })
+      }
+    })
+
+    return controller
+  },
+
   // ========== 版本 ==========
 
   async getVersions(rootPageId: string): Promise<string[]> {

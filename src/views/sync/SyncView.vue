@@ -8,6 +8,7 @@ const {
   historyList,
   isSyncing,
   overallProgress,
+  saveProgress,
   logMessages,
   toggleSelectId,
   selectAllHistory,

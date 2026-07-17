@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { usePageHistory } from '@/composables/usePageHistory'
 import { sync } from '@/services/sync'
-import type { BatchSyncProgress } from '@/services/sync'
+import type { BatchSyncProgress, SaveProgressEvent } from '@/services/sync'
 
 export function useSyncLogic() {
   const inputText = ref('')
@@ -9,6 +9,7 @@ export function useSyncLogic() {
   const isSyncing = ref(false)
   const isPaused = ref(false)
   const overallProgress = ref(0)
+  const saveProgress = ref<SaveProgressEvent | null>(null)
   const logMessages = ref<string[]>([])
   const taskMap = ref<Map<string, { title: string; status: string; progress: number }>>(new Map())
   const { items: historyList, cleanupStaleEntries } = usePageHistory()
@@ -94,6 +95,21 @@ export function useSyncLogic() {
     taskMap.value = map
   }
 
+  function handleSaveProgress(event: SaveProgressEvent) {
+    saveProgress.value = event
+    if (event.type === 'progress') {
+      if (event.stage === 'images') {
+        addLog(`🖼 ${event.message}`)
+      } else if (event.stage === 'saving' && event.pageTitle) {
+        addLog(`💾 ${event.message}`)
+      }
+    } else if (event.type === 'done') {
+      addLog('✅ 全部保存完成')
+    } else if (event.type === 'error') {
+      addLog(`❌ 保存失败: ${event.message}`)
+    }
+  }
+
   async function startBatchSync() {
     const allIds = allTargetIds.value
     if (allIds.length === 0) return
@@ -101,14 +117,15 @@ export function useSyncLogic() {
     isSyncing.value = true
     isPaused.value = false
     overallProgress.value = 0
+    saveProgress.value = null
     logMessages.value = []
     taskMap.value = new Map()
 
     addLog(`开始批量同步 ${allIds.length} 个页面...`)
 
     try {
-      await sync.syncPages(allIds, handleProgress)
-      addLog('全部同步任务完成')
+      await sync.syncPages(allIds, handleProgress, handleSaveProgress)
+      addLog('全部同步任务完成 + 保存完成')
     } catch (e) {
       addLog(`同步中断: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
@@ -141,6 +158,7 @@ export function useSyncLogic() {
     isSyncing,
     isPaused,
     overallProgress,
+    saveProgress,
     logMessages,
     taskMap,
     allTargetIds,

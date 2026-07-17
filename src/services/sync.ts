@@ -21,7 +21,18 @@ export interface BatchSyncProgress {
   overall: number
 }
 
+export interface SaveProgressEvent {
+  type: 'progress' | 'done' | 'error'
+  stage?: string
+  pageId?: string
+  pageTitle?: string
+  message?: string
+  step?: number
+  total?: number
+}
+
 export type SyncCallback = (progress: BatchSyncProgress) => void
+export type SaveProgressCallback = (event: SaveProgressEvent) => void
 
 // ── Internal state ─────────────────────────────────────────────────
 
@@ -337,6 +348,7 @@ export const sync = {
   async syncPage(
     pageId: string,
     onProgress?: SyncCallback,
+    onSaveProgress?: SaveProgressCallback,
   ): Promise<void> {
     cancelled = false
     visitedPages.clear()
@@ -360,7 +372,30 @@ export const sync = {
       await currentConcurrency.enqueue(() => syncOnePage(pageId))
       // Batch save all collected pages
       if (collectedPages.length > 0 && !cancelled) {
-        await storage.saveSyncResult(rootPageId!, collectedPages)
+        if (onSaveProgress) {
+          // SSE 模式：实时推送保存进度
+          await new Promise<void>((resolve, reject) => {
+            const ctrl = storage.saveSyncResultSSE(
+              rootPageId!,
+              collectedPages,
+              (event) => {
+                onSaveProgress(event)
+                if (event.type === 'done') resolve()
+                else if (event.type === 'error') reject(new Error(event.message || 'Save failed'))
+              },
+            )
+            // 如果外部取消了同步，也取消保存
+            const checkCancelled = setInterval(() => {
+              if (cancelled) {
+                ctrl.abort()
+                clearInterval(checkCancelled)
+                resolve()
+              }
+            }, 200)
+          })
+        } else {
+          await storage.saveSyncResult(rootPageId!, collectedPages)
+        }
       }
     } finally {
       currentConcurrency = null
@@ -372,6 +407,7 @@ export const sync = {
   async syncPages(
     pageIds: string[],
     onProgress?: SyncCallback,
+    onSaveProgress?: SaveProgressCallback,
   ): Promise<void> {
     if (pageIds.length === 0) return
 
@@ -400,7 +436,28 @@ export const sync = {
       await Promise.all(tasks.map((fn) => currentConcurrency!.enqueue(fn)))
 
       if (collectedPages.length > 0 && !cancelled) {
-        await storage.saveSyncResult(rootPageId!, collectedPages)
+        if (onSaveProgress) {
+          await new Promise<void>((resolve, reject) => {
+            const ctrl = storage.saveSyncResultSSE(
+              rootPageId!,
+              collectedPages,
+              (event) => {
+                onSaveProgress(event)
+                if (event.type === 'done') resolve()
+                else if (event.type === 'error') reject(new Error(event.message || 'Save failed'))
+              },
+            )
+            const checkCancelled = setInterval(() => {
+              if (cancelled) {
+                ctrl.abort()
+                clearInterval(checkCancelled)
+                resolve()
+              }
+            }, 200)
+          })
+        } else {
+          await storage.saveSyncResult(rootPageId!, collectedPages)
+        }
       }
     } finally {
       currentConcurrency = null

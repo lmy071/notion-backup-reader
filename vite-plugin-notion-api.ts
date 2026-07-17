@@ -361,98 +361,14 @@ async function handleRequest(req: Request): Promise<Response> {
   // 请求体: { rootPageId, pages: [{ page, children?, databases? }] }
   if (method === 'POST' && path === '/api/storage/save') {
     const body = (await req.json()) as Record<string, unknown>
-    const rootPageId = body.rootPageId as string
-    const pages = body.pages as Array<Record<string, unknown>> | undefined
+    const result = await handleSave(body)
+    return jsonResponse(result)
+  }
 
-    if (!rootPageId) return errorResponse('Missing rootPageId', 400)
-    if (!pages || pages.length === 0) return errorResponse('Missing pages', 400)
-
-    // 下载所有远程图片到本地 images/ 目录，替换 URL
-    await downloadAndReplaceImages(pages, rootPageId)
-
-    const today = new Date().toISOString().slice(0, 10)
-    const batchDir = join(JSON_DIR, rootPageId, today)
-    const batchEntries: unknown[] = []
-
-    for (const entry of pages) {
-      const page = entry.page as Record<string, unknown>
-      const pageId = page?.pageId as string | undefined
-      if (!pageId) continue
-
-      const pageDir = join(batchDir, pageId)
-
-      // 保存主页面 JSON
-      await writeJson(join(pageDir, 'page.json'), page)
-
-      // 保存子页面（children 目录）
-      const children = entry.children as Record<string, unknown> | undefined
-      const childrenEntries = children ? Object.keys(children) : []
-      if (children && childrenEntries.length > 0) {
-        const childrenDir = join(pageDir, 'children')
-        for (const [childId, childData] of Object.entries(children)) {
-          await writeJson(join(childrenDir, `${childId}.json`), childData)
-        }
-      }
-
-      // 保存内嵌数据库（databases 目录）
-      const databases = entry.databases as Array<Record<string, unknown>> | undefined
-      const databaseIds: string[] = []
-      if (databases && databases.length > 0) {
-        const databasesDir = join(pageDir, 'databases')
-        for (const dbItem of databases) {
-          const dbId = dbItem.databaseId as string
-          const db = dbItem.database as Record<string, unknown>
-          if (dbId && db) {
-            await writeJson(join(databasesDir, `${dbId}.json`), db)
-            databaseIds.push(dbId)
-          }
-        }
-      }
-
-      // 保存元信息（meta.json）
-      const blocks = (page as { blocks?: unknown[] })?.blocks
-      const meta: Record<string, unknown> = {
-        pageId,
-        rootPageId,
-        title: (page as { title?: string }).title ?? '',
-        syncedAt: new Date().toISOString(),
-        blockCount: Array.isArray(blocks) ? blocks.length : 0,
-        childPages: childrenEntries,
-        databases: databaseIds,
-        errors: [],
-      }
-      await writeJson(join(pageDir, 'meta.json'), meta)
-
-      // 构建批次条目（供首页 index.json 使用）
-      batchEntries.push({
-        pageId,
-        rootPageId,
-        title: (page as { title?: string }).title ?? '',
-        icon: (page as { icon?: unknown }).icon ?? null,
-        coverUrl: (page as { cover?: Record<string, unknown> })?.cover?.url ?? null,
-        lastSync: new Date().toISOString(),
-        childCount: childrenEntries.length,
-        blockCount: Array.isArray(blocks) ? blocks.length : 0,
-      })
-    }
-
-    // 保存批次摘要（batchDir/index.json）
-    const batchIndex = {
-      version: 1,
-      rootPageId,
-      date: today,
-      syncedAt: new Date().toISOString(),
-      pages: batchEntries,
-    }
-    await writeJson(join(batchDir, 'index.json'), batchIndex)
-
-    // 清理过旧版本（超过 MAX_VERSIONS 的日期目录）
-    const allDates = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
-    for (const oldDate of allDates.slice(MAX_VERSIONS)) {
-      await rmRecursive(join(JSON_DIR, rootPageId, oldDate))
-    }
-
-    return jsonResponse({ ok: true })
+  // ── POST /api/storage/save-sse — 批量保存（SSE 实时输出进度） ──
+  if (method === 'POST' && path === '/api/storage/save-sse') {
+    const body = (await req.json()) as Record<string, unknown>
+    return handleSaveSSE(body)
   }
 
   // ── GET /api/storage/database/:rootPageId/:date/:pageId/:databaseId — 读取数据库 ──
@@ -976,6 +892,174 @@ function getContentType(ext: string): string {
     '.avif': 'image/avif',
   }
   return map[ext.toLowerCase()] || 'application/octet-stream'
+}
+
+// ── POST /api/storage/save 核心处理逻辑 ──────────────────────────────
+
+async function handleSave(body: Record<string, unknown>): Promise<{ ok: boolean }> {
+  const rootPageId = body.rootPageId as string
+  const pages = body.pages as Array<Record<string, unknown>> | undefined
+  if (!rootPageId || !pages || pages.length === 0) throw new Error('Missing rootPageId or pages')
+
+  await downloadAndReplaceImages(pages, rootPageId)
+  await performSaveWrites(rootPageId, pages)
+  return { ok: true }
+}
+
+// ── POST /api/storage/save-sse SSE 流式处理 ──────────────────────────
+
+function sseEvent(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+async function handleSaveSSE(body: Record<string, unknown>): Promise<Response> {
+  const rootPageId = body.rootPageId as string
+  const pages = body.pages as Array<Record<string, unknown>> | undefined
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: string, data: unknown) => {
+        controller.enqueue(new TextEncoder().encode(sseEvent(event, data)))
+      }
+
+      try {
+        if (!rootPageId || !pages || pages.length === 0) {
+          send('error', { message: 'Missing rootPageId or pages' })
+          controller.close()
+          return
+        }
+
+        const totalSteps = 1 + pages.length // image download + each page write
+        let currentStep = 0
+
+        const emit = (event: string, payload: Record<string, unknown> = {}) => {
+          currentStep++
+          send(event, { ...payload, step: currentStep, total: totalSteps })
+        }
+
+        // Step 1: 下载图片
+        send('progress', { stage: 'images', message: '正在下载远程图片...', step: 0, total: totalSteps })
+        await downloadAndReplaceImages(pages, rootPageId)
+        emit('progress', { stage: 'images', message: '图片下载完成', done: false })
+
+        // 保存：逐页写入并发送事件
+        await performSaveWrites(rootPageId, pages, (pageId: string, pageTitle: string) => {
+          emit('progress', {
+            stage: 'saving',
+            pageId,
+            pageTitle,
+            message: `已保存: ${pageTitle || pageId}`,
+            done: false,
+          })
+        })
+
+        send('done', { message: '保存完成', step: totalSteps, total: totalSteps })
+      } catch (e) {
+        send('error', { message: e instanceof Error ? e.message : String(e) })
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  })
+}
+
+/** 执行批量写入（提取为共享函数） */
+async function performSaveWrites(
+  rootPageId: string,
+  pages: Array<Record<string, unknown>>,
+  onPageSaved?: (pageId: string, pageTitle: string) => void,
+): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10)
+  const batchDir = join(JSON_DIR, rootPageId, today)
+  const batchEntries: unknown[] = []
+
+  for (const entry of pages) {
+    const page = entry.page as Record<string, unknown>
+    const pageId = page?.pageId as string | undefined
+    if (!pageId) continue
+
+    const pageDir = join(batchDir, pageId)
+
+    // 保存主页面 JSON
+    await writeJson(join(pageDir, 'page.json'), page)
+
+    // 保存子页面（children 目录）
+    const children = entry.children as Record<string, unknown> | undefined
+    const childrenEntries = children ? Object.keys(children) : []
+    if (children && childrenEntries.length > 0) {
+      const childrenDir = join(pageDir, 'children')
+      for (const [childId, childData] of Object.entries(children)) {
+        await writeJson(join(childrenDir, `${childId}.json`), childData)
+      }
+    }
+
+    // 保存内嵌数据库（databases 目录）
+    const databases = entry.databases as Array<Record<string, unknown>> | undefined
+    const databaseIds: string[] = []
+    if (databases && databases.length > 0) {
+      const databasesDir = join(pageDir, 'databases')
+      for (const dbItem of databases) {
+        const dbId = dbItem.databaseId as string
+        const db = dbItem.database as Record<string, unknown>
+        if (dbId && db) {
+          await writeJson(join(databasesDir, `${dbId}.json`), db)
+          databaseIds.push(dbId)
+        }
+      }
+    }
+
+    // 保存元信息（meta.json）
+    const blocks = (page as { blocks?: unknown[] })?.blocks
+    const meta: Record<string, unknown> = {
+      pageId,
+      rootPageId,
+      title: (page as { title?: string }).title ?? '',
+      syncedAt: new Date().toISOString(),
+      blockCount: Array.isArray(blocks) ? blocks.length : 0,
+      childPages: childrenEntries,
+      databases: databaseIds,
+      errors: [],
+    }
+    await writeJson(join(pageDir, 'meta.json'), meta)
+
+    // 构建批次条目
+    batchEntries.push({
+      pageId,
+      rootPageId,
+      title: (page as { title?: string }).title ?? '',
+      icon: (page as { icon?: unknown }).icon ?? null,
+      coverUrl: (page as { cover?: Record<string, unknown> })?.cover?.url ?? null,
+      lastSync: new Date().toISOString(),
+      childCount: childrenEntries.length,
+      blockCount: Array.isArray(blocks) ? blocks.length : 0,
+    })
+
+    onPageSaved?.(pageId, (page as { title?: string }).title ?? '')
+  }
+
+  // 保存批次摘要（batchDir/index.json）
+  const batchIndex = {
+    version: 1,
+    rootPageId,
+    date: today,
+    syncedAt: new Date().toISOString(),
+    pages: batchEntries,
+  }
+  await writeJson(join(batchDir, 'index.json'), batchIndex)
+
+  // 清理过旧版本
+  const allDates = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
+  for (const oldDate of allDates.slice(MAX_VERSIONS)) {
+    await rmRecursive(join(JSON_DIR, rootPageId, oldDate))
+  }
 }
 
 /** 递归删除目录及其所有内容 */
