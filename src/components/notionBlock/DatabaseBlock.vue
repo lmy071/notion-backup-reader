@@ -834,6 +834,14 @@ async function handleImport(file: File) {
       </Transition>
     </Teleport>
   </div>
+  <!-- 导入日志抽屉 -->
+  <ImportLogDrawer
+    :open="importDrawerOpen"
+    :logs="importLogs"
+    :importing="importing"
+    :import-progress="importProgress"
+    @close="importDrawerOpen = false"
+  />
 </template>
 
 <style scoped>
@@ -855,12 +863,3 @@ async function handleImport(file: File) {
   transform: translateX(100%);
 }
 </style>
-
-<!-- 导入日志抽屉（放在最外层，覆盖整个页面） -->
-<ImportLogDrawer
-  :open="importDrawerOpen"
-  :logs="importLogs"
-  :importing="importing"
-  :import-progress="importProgress"
-  @close="importDrawerOpen = false"
-/>
