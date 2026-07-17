@@ -434,17 +434,41 @@ async function exportXlsx() {
         zip.file(`xl/media/image${entry.localId}.${entry.ext}`, entry.buffer, { binary: true })
       }
 
-      // 更新 [Content_Types].xml：添加图片 MIME 类型
+      // 在 workbook.xml.rels 中添加 cellimages.xml 的引用
+      // WPS 必须通过此关系发现 cellimages.xml
+      const wbRelsFile = zip.file('xl/_rels/workbook.xml.rels')
+      if (wbRelsFile) {
+        const wbRelsXml = await wbRelsFile.async('text')
+        // 找到最大 rId 编号
+        const rIdPattern = /rId(\d+)/g
+        let maxRId = 0
+        let m: RegExpExecArray | null
+        while ((m = rIdPattern.exec(wbRelsXml)) !== null) {
+          maxRId = Math.max(maxRId, parseInt(m[1]))
+        }
+        const nextRId = maxRId + 1
+        const updatedRels = wbRelsXml.replace(
+          '</Relationships>',
+          `  <Relationship Id="rId${nextRId}" Type="http://www.wps.cn/officeDocument/2020/cellImage" Target="cellimages.xml"/>\n</Relationships>`
+        )
+        zip.file('xl/_rels/workbook.xml.rels', updatedRels)
+      }
+
+      // 更新 [Content_Types].xml
       const contentTypesFile = zip.file('[Content_Types].xml')
       if (contentTypesFile) {
         const contentTypesXml = await contentTypesFile.async('text')
-        const extraDefaults = new Set<string>()
+        const extraParts = [
+          '<Override PartName="/xl/cellimages.xml" ContentType="application/vnd.wps-officedocument.cellimage+xml"/>',
+        ]
         for (const entry of imageEntries) {
-          extraDefaults.add(`<Default Extension="${entry.ext}" ContentType="image/${entry.ext === 'jpg' ? 'jpeg' : entry.ext}"/>`)
+          if (!contentTypesXml.includes(`Extension="${entry.ext}"`)) {
+            extraParts.push(`<Default Extension="${entry.ext}" ContentType="image/${entry.ext === 'jpg' ? 'jpeg' : entry.ext}"/>`)
+          }
         }
         const updatedContentTypes = contentTypesXml.replace(
           '</Types>',
-          [...extraDefaults].join('\n') + '\n</Types>'
+          [...new Set(extraParts)].join('\n') + '\n</Types>'
         )
         zip.file('[Content_Types].xml', updatedContentTypes)
       }
