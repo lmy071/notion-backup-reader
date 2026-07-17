@@ -278,7 +278,7 @@ async function exportXlsx() {
     const filesCols = cols.filter(c => c.type === 'files')
 
     // ── 预取图片：url → { buffer, ext, localId } ──
-    const imageRegistry = new Map<string, { buffer: ArrayBuffer; ext: string; localId: number }>()
+    const imageRegistry = new Map<string, { buffer: ArrayBuffer; ext: string; localId: number; guid: string }>()
     let nextImageId = 1
 
     if (filesCols.length > 0) {
@@ -296,7 +296,13 @@ async function exportXlsx() {
                   if (resp.ok) {
                     const buffer = await resp.arrayBuffer()
                     const ext = (url.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'png')
-                    imageRegistry.set(url, { buffer, ext, localId: nextImageId++ })
+                    // SHA-256 整个图片 buffer 生成唯一 GUID（PNG 前 16 字节全部相同）
+                    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+                    const guid = 'ID_' + Array.from(new Uint8Array(hashBuffer))
+                      .map(b => b.toString(16).padStart(2, '0'))
+                      .join('')
+                      .toUpperCase()
+                    imageRegistry.set(url, { buffer, ext, localId: nextImageId++, guid })
                   }
                 } catch { /* image fetch failed, skip */ }
               })
@@ -318,17 +324,12 @@ async function exportXlsx() {
       cell.alignment = { vertical: 'middle', horizontal: 'center' }
     })
 
-    // ── 生成图片 GUID（基于 buffer 前 16 字节） ──
+    // ── 构建 GUID 查找（已在 fetch 阶段计算好） ──
     const imageEntries: Array<{ guid: string; ext: string; buffer: ArrayBuffer; localId: number }> = []
     const imageGuidMap = new Map<string, string>() // url → GUID
     for (const [url, info] of imageRegistry) {
-      const hashBytes = new Uint8Array(info.buffer).slice(0, 16)
-      const guid = 'ID_' + Array.from(hashBytes)
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('')
-        .toUpperCase()
-      imageEntries.push({ guid, ext: info.ext, buffer: info.buffer, localId: info.localId })
-      imageGuidMap.set(url, guid)
+      imageEntries.push(info)
+      imageGuidMap.set(url, info.guid)
     }
 
     // ── 数据行 ──
