@@ -416,6 +416,27 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(db)
   }
 
+  // ── DELETE /api/storage/database/:rootPageId/:date/:pageId/:databaseId — 清空数据库数据 ──
+  if (method === 'DELETE' && path.startsWith('/api/storage/database/')) {
+    if (segments.length < 7) return errorResponse('Invalid path', 400)
+    const rootPageId = segments[3]
+    const date = segments[4]
+    const pageId = normalizePageId(segments[5])
+    const databaseId = segments[6]
+
+    const dbPath = join(JSON_DIR, rootPageId, date, pageId, 'databases', `${databaseId}.json`)
+    const db = await readJsonSafe(dbPath) as Record<string, unknown> | null
+    if (!db) return jsonResponse({ error: 'Database not found' }, 404)
+    if (!db.results || !Array.isArray(db.results)) {
+      return jsonResponse({ ok: true, rowsBefore: 0, rowsAfter: 0 })
+    }
+
+    const rowsBefore = (db.results as unknown[]).length
+    const cleared = { ...db, results: [] }
+    await writeJson(dbPath, cleared)
+    return jsonResponse({ ok: true, rowsBefore, rowsAfter: 0 })
+  }
+
   // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId — 反向链接 ──
   if (method === 'GET' && path.startsWith('/api/storage/backlinks/')) {
     if (segments.length < 6) return errorResponse('Invalid path', 400)

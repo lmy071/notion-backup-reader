@@ -108,6 +108,19 @@ const apiTree: ApiNode[] = [
 # 示例 URL：/api/storage/logs?date=2026-07-15
 # 不传 date 则返回最近 10 个文件`,
   },
+  {
+    id: 'storage-db-delete',
+    label: '🗑 清空数据库',
+    method: 'DELETE',
+    path: '/api/storage/database/{rootPageId}/{date}/{pageId}/{databaseId}',
+    description: '清空指定数据库的全部行数据（保留 schema 结构）',
+    defaultInput: `# DELETE 请求，路径参数拼入 URL
+# URL 示例：/api/storage/database/${DEMO_PAGE_ID}/2026-07-17/${DEMO_PAGE_ID}/3a020a96-7459-80a8-af9c-ff81b1e23912
+# 下面字段仅供参考，实际由路由解析
+{
+  "comment": "路径参数在 URL 中"
+}`,
+  },
 ]
 
 const configStore = useConfigStore()
