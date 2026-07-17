@@ -507,7 +507,7 @@ async function handleImport(file: File) {
         if (!img) continue
 
         // 上传前间隔 1s
-        await delay(1000)
+        await delay(2000)
 
         // 重试逻辑：最多 5 次，间隔 5s
         let url: string | null = null
@@ -537,7 +537,7 @@ async function handleImport(file: File) {
             time: Date.now(),
           })
           // 成功后间隔 1s 再继续下一张
-          await delay(1000)
+          await delay(5000)
         } else {
           importLogs.value.push({
             level: 'error',
