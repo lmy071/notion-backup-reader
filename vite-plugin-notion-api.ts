@@ -17,6 +17,17 @@ const MAX_VERSIONS = 10
 /** 最多保留的日志文件数 */
 const MAX_LOG_FILES = 30
 
+/**
+ * 将 Notion page ID 统一为 UUID 带破折号格式（与磁盘目录结构一致）。
+ * 输入: "39f20a96745980a2b492c1f55148c845" 或 "39f20a96-7459-80a2-b492-c1f55148c845"
+ * 输出: "39f20a96-7459-80a2-b492-c1f55148c845"
+ */
+function normalizePageId(id: string): string {
+  const hex = id.replace(/-/g, '')
+  if (hex.length !== 32) return id // 非标准 ID，原样返回
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
+}
+
 // ── JSON 文件助手 ────────────────────────────────────────────────
 
 /** 返回 JSON 格式的 HTTP 响应 */
@@ -314,9 +325,9 @@ async function handleRequest(req: Request): Promise<Response> {
   if (method === 'GET' && path.startsWith('/api/storage/page/')) {
     // segments = ['api','storage','page','rootPageId','date','pageId',...]
     if (segments.length < 6) return errorResponse('Invalid path', 400)
-    const rootPageId = segments[3]
+    const rootPageId = normalizePageId(segments[3])
     const date = segments[4]
-    const pageId = segments.slice(5).join('/')
+    const pageId = normalizePageId(segments.slice(5).join('/'))
 
     // 读取页面的 page.json
     const pageDir = join(JSON_DIR, rootPageId, date, pageId)
@@ -354,7 +365,7 @@ async function handleRequest(req: Request): Promise<Response> {
   // ── GET /api/storage/batch-index/:rootPageId/:date — 批次索引 ──
   if (method === 'GET' && path.startsWith('/api/storage/batch-index/')) {
     if (segments.length < 6) return errorResponse('Invalid path', 400)
-    const rootPageId = segments[3]
+    const rootPageId = normalizePageId(segments[3])
     const date = segments[4]
     const indexFile = join(JSON_DIR, rootPageId, date, 'index.json')
     const index = await readJsonSafe(indexFile)
@@ -379,9 +390,9 @@ async function handleRequest(req: Request): Promise<Response> {
   // ── GET /api/storage/database/:rootPageId/:date/:pageId/:databaseId — 读取数据库 ──
   if (method === 'GET' && path.startsWith('/api/storage/database/')) {
     if (segments.length < 7) return errorResponse('Invalid path', 400)
-    const rootPageId = segments[3]
+    const rootPageId = normalizePageId(segments[3])
     const date = segments[4]
-    const pageId = segments[5]
+    const pageId = normalizePageId(segments[5])
     const databaseId = segments[6]
 
     const dbPath = join(JSON_DIR, rootPageId, date, pageId, 'databases', `${databaseId}.json`)
@@ -393,9 +404,9 @@ async function handleRequest(req: Request): Promise<Response> {
   // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId — 反向链接 ──
   if (method === 'GET' && path.startsWith('/api/storage/backlinks/')) {
     if (segments.length < 6) return errorResponse('Invalid path', 400)
-    const rootPageId = segments[3]
+    const rootPageId = normalizePageId(segments[3])
     const date = segments[4]
-    const pageId = segments.slice(5).join('/')
+    const pageId = normalizePageId(segments.slice(5).join('/'))
     return jsonResponse(await buildBacklinks(rootPageId, date, pageId))
   }
 
@@ -408,7 +419,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // ── DELETE /api/storage/remove/:rootPageId — 删除整个根页面备份 ──
   if (method === 'DELETE' && path.startsWith('/api/storage/remove/')) {
-    const rootPageId = segments[3]
+    const rootPageId = normalizePageId(segments[3])
     const rootDir = join(JSON_DIR, rootPageId)
     if (existsSync(rootDir)) {
       await rmRecursive(rootDir)
