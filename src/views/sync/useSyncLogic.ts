@@ -60,52 +60,80 @@ export function useSyncLogic() {
     logMessages.value.push(msg)
   }
 
-  /** 打字机缓冲 — 当前正在构建的行内容 */
-  let currentLine = ''
-  /** 已经确认完成的固定行数 */
-  let committedCount = 0
-  let rafId = 0
+  // ══════════ 打字机动画 ══════════
+  const TYPING_SPEED = 30 // 每个字符间隔（ms）
 
-  /**
-   * 逐字到达时调用。将字符拼入 currentLine，
-   * 通过 RAF 以最大帧率更新 UI，产生打字机效果。
-   */
-  function onLogChar(chunk: string) {
-    currentLine += chunk
-    scheduleFlush()
+  /** 待动画的行队列 */
+  let lineQueue: string[] = []
+  /** 当前正在动画的行已显示字符数 */
+  let typedCount = 0
+  let timerId: ReturnType<typeof setTimeout> | null = null
+
+  /** 清空打字机状态（同步开始/取消时） */
+  function resetTypewriter() {
+    if (timerId) { clearTimeout(timerId); timerId = null }
+    lineQueue = []
+    typedCount = 0
   }
 
-  /**
-   * 一行结束时调用。将当前行固定到日志数组，开始新行。
-   */
-  function onLogLineEnd() {
-    if (currentLine) {
-      logMessages.value.push(currentLine)
-      committedCount++
-      currentLine = ''
+  /** 打字动画 — 每次 tick 追加一个字符到当前行 */
+  function typeTick() {
+    if (lineQueue.length === 0) {
+      timerId = null
+      return
     }
-    // 空行也占位
-    if (!currentLine && logMessages.value.length === committedCount) {
-      logMessages.value.push('')
-      committedCount++
-    }
-  }
 
-  function scheduleFlush() {
-    if (rafId) return
-    rafId = requestAnimationFrame(() => {
-      rafId = 0
-      const msgs = logMessages.value
-      // 如果还没有固定行，推入第一行
-      if (committedCount === 0 && msgs.length === 0) {
-        logMessages.value = [currentLine]
-        return
+    const fullLine = lineQueue[0]
+    typedCount++
+
+    // 更新日志：最后一行是正在构建的打字行
+    const arr = [...logMessages.value]
+    arr[arr.length - 1] = fullLine.slice(0, typedCount)
+    logMessages.value = arr
+
+    if (typedCount >= fullLine.length) {
+      // 当前行动画完成 → 确认，取下一行
+      lineQueue.shift()
+      typedCount = 0
+      if (lineQueue.length > 0) {
+        logMessages.value.push('') // 为下一行预留空位
+        timerId = setTimeout(typeTick, TYPING_SPEED * 4) // 行间略停顿
+      } else {
+        timerId = null
       }
-      // 删除旧打字行，追加新打字行
-      const fixed = msgs.slice(0, committedCount)
-      logMessages.value = currentLine ? [...fixed, currentLine] : fixed
-    })
+    } else {
+      timerId = setTimeout(typeTick, TYPING_SPEED)
+    }
   }
+
+  /** 推入一行到动画队列，如果空闲则启动动画 */
+  function enqueueTypingLine(line: string) {
+    const wasIdle = lineQueue.length === 0 && typedCount === 0
+    lineQueue.push(line)
+    if (wasIdle) {
+      // 推入第一个占位空行（将被动画填充）
+      logMessages.value.push('')
+      typeTick()
+    }
+  }
+
+  /** 立即刷完队列中所有剩余行（同步结束时调用） */
+  function flushTypewriter() {
+    if (timerId) { clearTimeout(timerId); timerId = null }
+    // 将当前未完成的打字行补齐
+    if (lineQueue.length > 0) {
+      const arr = [...logMessages.value]
+      arr[arr.length - 1] = lineQueue[0]
+      // 剩余行直接追加
+      for (let i = 1; i < lineQueue.length; i++) {
+        arr.push(lineQueue[i])
+      }
+      logMessages.value = arr
+    }
+    resetTypewriter()
+  }
+
+  // ══════════ 同步逻辑 ══════════
 
   function parseInputIds(): string[] {
     return parsedIds.value
@@ -120,6 +148,7 @@ export function useSyncLogic() {
     overallProgress.value = 0
     logMessages.value = []
     taskMap.value = new Map()
+    resetTypewriter()
 
     const { config } = useConfigStore()
 
@@ -128,32 +157,15 @@ export function useSyncLogic() {
         startSyncSync(
           { pageIds: allIds, apiKey: config.apiKey },
           {
-            onLog(chunk) {
-              if (chunk === '\n') {
-                onLogLineEnd()
-              } else {
-                onLogChar(chunk)
-              }
-            },
-            onFlush() {
-              // no-op: RAF 已在流式更新中处理
-            },
-            onTask(task) {
-              const map = new Map(taskMap.value)
-              map.set(task.pageId, task)
-              taskMap.value = map
-
-              // 计算整体进度
-              let sum = 0
-              for (const t of map.values()) sum += t.progress
-              overallProgress.value = map.size > 0
-                ? Math.round(sum / map.size)
-                : 0
+            onLog(line: string) {
+              enqueueTypingLine(line)
             },
             onDone() {
+              flushTypewriter()
               resolve()
             },
             onError(msg) {
+              flushTypewriter()
               logMessages.value.push(`💥 ${msg}`)
               reject(new Error(msg))
             },
@@ -163,6 +175,7 @@ export function useSyncLogic() {
     } catch (e) {
       // error already logged via onError
     } finally {
+      flushTypewriter()
       isSyncing.value = false
       isPaused.value = false
     }
@@ -177,6 +190,7 @@ export function useSyncLogic() {
   }
 
   function cancelSync() {
+    resetTypewriter()
     isSyncing.value = false
     isPaused.value = false
   }

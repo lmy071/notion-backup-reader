@@ -889,12 +889,7 @@ async function buildBacklinks(
 
 /** 逐字发送日志到 SSE 流 */
 function snkLog(ctrl: ReadableStreamDefaultController, message: string): void {
-  const encoder = new TextEncoder()
-  for (const char of message) {
-    ctrl.enqueue(encoder.encode(sseEvent('log', { chunk: char })))
-  }
-  // 发送换行作为行结束标记
-  ctrl.enqueue(encoder.encode(sseEvent('log', { chunk: '\n' })))
+  ctrl.enqueue(new TextEncoder().encode(sseEvent('log', { line: message })))
 }
 
 /** 发送单任务状态 */

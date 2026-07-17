@@ -2,11 +2,11 @@
  * SSE 同步客户端 — 与 POST /api/sync/sse 配对。
  *
  * 用法:
- *   const ctrl = startSync({ pageIds: ['id1','id2'], apiKey:'...' }, {
- *     onLog(chunk)    // 逐字流式日志
- *     onTask(task)    // 单任务状态更新 {pageId,title,status,progress}
- *     onDone()        // 完成
- *     onError(msg)    // 错误
+ *   const ctrl = startSyncSync({ pageIds: ['id1','id2'], apiKey:'...' }, {
+ *     onLog(line)    // 整行日志
+ *     onTask(task)   // 单任务状态更新 {pageId,title,status,progress}
+ *     onDone()       // 完成
+ *     onError(msg)   // 错误
  *   })
  *   // 取消: ctrl.abort()
  */
@@ -20,8 +20,7 @@ export interface SyncTaskStatus {
 }
 
 export interface SyncCallbacks {
-  onLog?: (chunk: string) => void
-  onFlush?: () => void // 每个 SSE 事件结束时触发，方便 UI 批量渲染
+  onLog?: (line: string) => void
   onTask?: (task: SyncTaskStatus) => void
   onDone?: () => void
   onError?: (message: string) => void
@@ -62,7 +61,6 @@ export function startSyncSync(
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
-        // 保留最后一个不完整行
         buffer = lines.pop() || ''
 
         let eventType = ''
@@ -74,7 +72,6 @@ export function startSyncSync(
           } else if (line.startsWith('data: ')) {
             eventData = line.slice(6)
           } else if (line === '' && eventType) {
-            // SSE 事件完结
             processEvent(eventType, eventData, callbacks)
             eventType = ''
             eventData = ''
@@ -86,8 +83,6 @@ export function startSyncSync(
         callbacks.onError?.(e instanceof Error ? e.message : String(e))
       }
     }
-
-    callbacks.onFlush?.()
   }).catch((e) => {
     if (!controller.signal.aborted) {
       callbacks.onError?.(e instanceof Error ? e.message : String(e))
@@ -103,7 +98,7 @@ function processEvent(type: string, data: string, cbs: SyncCallbacks): void {
 
     switch (type) {
       case 'log':
-        if (payload.chunk) cbs.onLog?.(payload.chunk)
+        if (payload.line != null) cbs.onLog?.(String(payload.line))
         break
       case 'task':
         cbs.onTask?.(payload as SyncTaskStatus)
@@ -118,6 +113,4 @@ function processEvent(type: string, data: string, cbs: SyncCallbacks): void {
   } catch {
     // skip malformed payloads
   }
-
-  cbs.onFlush?.()
 }
