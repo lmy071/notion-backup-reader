@@ -10,6 +10,7 @@ import {
   validateRows,
   buildNotionProperties,
   createDatabasePage,
+  uploadImageForImport,
   type ImportLog,
 } from '@/services/db-import'
 import ImportLogDrawer from '@/components/common/ImportLogDrawer.vue'
@@ -422,12 +423,12 @@ async function handleImport(file: File) {
   }
 
   try {
-    // 1. 解析 Excel
+    // 1. 解析 Excel（含嵌入图片）
     importLogs.value.push({ level: 'info', message: '正在解析 Excel 文件...', time: Date.now() })
-    const { headers, rows } = await parseExcelFile(file)
+    const { headers, rows, images } = await parseExcelFile(file)
     importLogs.value.push({
       level: 'info',
-      message: `解析完成：${headers.length} 列, ${rows.length} 行数据`,
+      message: `解析完成：${headers.length} 列, ${rows.length} 行数据, ${images.size} 张嵌入图片`,
       time: Date.now(),
     })
 
@@ -488,7 +489,40 @@ async function handleImport(file: File) {
 
       const row = rows[i]
       const titleValue = row[schema.titleKey]
-      const properties = buildNotionProperties(row, schema)
+
+      // 7a. 上传 files 列的图片到服务器（获取外部 URL）
+      const imageUrls: Record<string, string[]> = {}
+      const filesColumns = Object.keys(schema.properties).filter(
+        k => schema.properties[k].type === 'files',
+      )
+      for (const col of filesColumns) {
+        const key = `${col}:${rn}`
+        const img = images.get(key)
+        if (!img) continue
+
+        const url = await uploadImageForImport(img)
+        if (url) {
+          imageUrls[col] = [url]
+          importLogs.value.push({
+            level: 'success',
+            message: `"${titleValue}" ${col} 图片上传成功`,
+            row: rn,
+            column: col,
+            time: Date.now(),
+          })
+        } else {
+          importLogs.value.push({
+            level: 'warn',
+            message: `"${titleValue}" ${col} 图片上传失败，将不导入图片`,
+            row: rn,
+            column: col,
+            time: Date.now(),
+          })
+        }
+      }
+
+      // 7b. 构建 Notion properties
+      const properties = buildNotionProperties(row, schema, imageUrls)
 
       const res = await createDatabasePage(props.block.id, properties, apiKey)
 

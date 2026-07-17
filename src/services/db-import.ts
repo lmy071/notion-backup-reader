@@ -2,14 +2,14 @@
  * 数据库 Excel 导入服务
  *
  * 功能：
- * 1. 解析 Excel 文件（ExcelJS，格式与导出一致）
+ * 1. 解析 Excel 文件（ExcelJS，格式与导出一致），含嵌入图片提取
  * 2. 验证 Excel 列是否与 Notion 数据库属性匹配
  * 3. 识别已有行（按 title 列去重，支持增量导入）
  * 4. 通过 Notion API 逐行创建/更新页面
  *
  * 限制：
  * - 仅支持增量导入（不更新已有行，只新增不存在的行）
- * - 不支持 files 类型列的导入（图片等文件需手动上传）
+ * - files 类型列需 Excel 单元格内嵌入图片
  * - 不支持 people / formula 等复杂类型
  */
 
@@ -52,10 +52,10 @@ const IMPORTABLE_TYPES = new Set([
   'phone_number',
   'date',
   'status',
+  'files',
 ])
 
 const UNSUPPORTED_TYPES: Record<string, string> = {
-  files: '不支持导入文件/图片列',
   formula: '公式列由 Notion 自动计算，不可写入',
   created_time: '创建时间由 Notion 自动生成',
   last_edited_time: '最后编辑时间由 Notion 自动生成',
@@ -72,6 +72,15 @@ const UNSUPPORTED_TYPES: Record<string, string> = {
 interface ParsedExcel {
   headers: string[]
   rows: Record<string, string>[]
+  /** 单元格位置 → BufferedImage 的映射。key 格式为 "colKey:rowIndex"（rowIndex 从 1 起，即 Excel 数据首行 = 1） */
+  images: Map<string, BufferedImage>
+}
+
+/** Excel 中提取的图片信息 */
+export interface BufferedImage {
+  buffer: ArrayBuffer
+  extension: string
+  mimeType: string
 }
 
 // ── 数据库属性配置 ─────────────────────────────────────────
@@ -113,7 +122,70 @@ export async function parseExcelFile(file: File): Promise<ParsedExcel> {
     rows.push(row)
   }
 
-  return { headers, rows }
+  // ── 提取嵌入图片 ────────────────────────────────────────
+  const images: Map<string, BufferedImage> = new Map()
+
+  const sheetImages = ws.getImages() as Array<{
+    imageId: string
+    range?: {
+      tl?: { nativeCol: number; nativeRow: number }
+      br?: { nativeCol: number; nativeRow: number }
+    }
+  }>
+
+  // 建立 imageId → BufferedImage 索引
+  const imageBuffers = new Map<string, BufferedImage>()
+  for (const img of sheetImages) {
+    if (imageBuffers.has(img.imageId)) continue
+
+    const wbImg = wb.getImage(Number(img.imageId)) as {
+      buffer?: Buffer
+      extension?: string
+    } | undefined
+    if (!wbImg?.buffer) continue
+
+    const ext = (wbImg.extension || 'png').toLowerCase()
+    const mimeMap: Record<string, string> = {
+      png: 'image/png',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      bmp: 'image/bmp',
+      svg: 'image/svg+xml',
+    }
+    imageBuffers.set(img.imageId, {
+      buffer: (wbImg.buffer as Buffer).buffer.slice(
+        (wbImg.buffer as Buffer).byteOffset,
+        (wbImg.buffer as Buffer).byteOffset + (wbImg.buffer as Buffer).length,
+      ),
+      extension: ext,
+      mimeType: mimeMap[ext] || 'application/octet-stream',
+    })
+  }
+
+  // 映射图片到单元格：key = "colKey:rowIndex"
+  // rowIndex 从 1 起（Excel 数据首行 = row 1，对应 Excel 第 2 行）
+  for (const img of sheetImages) {
+    const buf = imageBuffers.get(img.imageId)
+    if (!buf) continue
+
+    const tl = img.range?.tl
+    if (!tl || tl.nativeRow === undefined) continue
+
+    // tl.nativeRow 是 0-based Excel 行号（第 1 行为 0）
+    // 数据从 Excel 第 2 行开始，即 nativeRow >= 1
+    const rowIndex = tl.nativeRow
+    if (rowIndex < 1) continue // 跳过表头行
+
+    // 找到最接近的列名
+    if (tl.nativeCol !== undefined && tl.nativeCol < headers.length) {
+      const colKey = headers[tl.nativeCol]
+      images.set(`${colKey}:${rowIndex}`, buf)
+    }
+  }
+
+  return { headers, rows, images }
 }
 
 // ── Schema 验证 ────────────────────────────────────────────
@@ -276,10 +348,12 @@ export function validateRows(
 /**
  * 将 Excel 行数据转换为 Notion API 的 properties 对象。
  * 跳过不支持的类型和空值。
+ * @param imageUrls 可选的图片 URL 映射，key 为列名，value 为已上传到服务器的图片 URL 数组
  */
 export function buildNotionProperties(
   row: Record<string, string>,
   schema: DbSchema,
+  imageUrls?: Record<string, string[]>,
 ): Record<string, unknown> {
   const properties: Record<string, unknown> = {}
 
@@ -341,7 +415,6 @@ export function buildNotionProperties(
         break
       case 'date':
         if (value) {
-          // 尝试解析多种日期格式
           const parsed = parseDate(value)
           if (parsed) {
             properties[col] = { date: { start: parsed } }
@@ -351,6 +424,18 @@ export function buildNotionProperties(
       case 'status':
         if (value) {
           properties[col] = { status: { name: value } }
+        }
+        break
+      case 'files':
+        // files 类型：使用预先上传到服务器的外部 URL
+        if (imageUrls && imageUrls[col] && imageUrls[col].length > 0) {
+          properties[col] = {
+            files: imageUrls[col].map(url => ({
+              name: url.split('/').pop() || 'image',
+              type: 'external',
+              external: { url },
+            })),
+          }
         }
         break
     }
@@ -386,19 +471,17 @@ export async function createDatabasePage(
   properties: Record<string, unknown>,
   apiKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const url = `https://api.notion.com/v1/pages`
   const body = {
     parent: { database_id: databaseId },
     properties,
   }
 
   try {
-    const res = await fetch(url, {
+    const res = await fetch('/api/db-import/create-page', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'Notion-Version': '2022-06-28',
+        'X-Notion-Token': apiKey,
       },
       body: JSON.stringify(body),
     })
@@ -412,4 +495,42 @@ export async function createDatabasePage(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
+}
+
+// ── 图片上传（开发模式）─────────────────────────────────────
+
+/**
+ * 将 BufferedImage 通过 PicList 本地服务上传到已配图床（如 Gitee），
+ * 获取公网可达的图片 URL（Notion files 属性 external.url 要求公网可达）。
+ * 返回公网 URL，失败时返回 null。
+ * 前提：PicList 需后台运行，默认端口 36677。
+ */
+export async function uploadImageForImport(
+  image: BufferedImage,
+): Promise<string | null> {
+  const blob = new Blob([image.buffer], { type: image.mimeType })
+  const form = new FormData()
+  form.append('file', blob, `import.${image.extension}`)
+
+  try {
+    const res = await fetch('http://127.0.0.1:36677/upload', {
+      method: 'POST',
+      body: form,
+    })
+    if (!res.ok) return null
+    const json = await res.json() as { result?: string[] }
+    if (json.result?.[0]) return json.result[0]
+    return null
+  } catch {
+    return null
+  }
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
 }

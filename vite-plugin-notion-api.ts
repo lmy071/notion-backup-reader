@@ -227,6 +227,7 @@ async function downloadImage(remoteUrl: string, rootPageId: string): Promise<str
 // DELETE /api/storage/remove/:rootPageId                   — 删除整个根页面备份
 // DELETE /api/storage/cleanup/:rootPageId                  — 清理旧版本
 // POST /api/storage/append-log                             — 追加日志
+// POST /api/images/import                                  — 暂存导入图片
 // GET  /api/storage/logs                                   — 查询日志
 // POST /api/storage/cleanup-logs                           — 清理日志
 // POST /api/notion/*                                       — Notion API 代理
@@ -266,6 +267,16 @@ async function handleRequest(req: Request): Promise<Response> {
   // ── GET /api/storage/index — 全局索引（首页卡片列表） ──
   if (method === 'GET' && path === '/api/storage/index') {
     return jsonResponse(await buildGlobalIndex())
+  }
+
+  // ── POST /api/images/import — 暂存导入图片（返回外部 URL 供 Notion files 属性使用） ──
+  if (method === 'POST' && path === '/api/images/import') {
+    return handleImageImport(req)
+  }
+
+  // ── POST /api/db-import/create-page — 代理创建 Notion 数据库页面（绕 CORS） ──
+  if (method === 'POST' && path === '/api/db-import/create-page') {
+    return handleCreateDatabasePage(req)
   }
 
   // ── GET /api/storage/page/:rootPageId/:date/:pageId — 读取单个页面 ──
@@ -969,6 +980,78 @@ function tryJsonParse(raw: string): unknown {
     return JSON.parse(raw)
   } catch {
     return raw
+  }
+}
+
+// ── POST /api/images/import 处理器 ───────────────────────────────
+
+/**
+ * 接收前端 POST 的 base64 图片数据，写到本地 images/import/ 目录，
+ * 返回外部可访问的 URL（供 Notion files 属性的 external.url 使用）。
+ *
+ * 请求体：{ data: string (base64), extension: string, mimeType: string }
+ * 响应体：{ url: string }
+ */
+async function handleImageImport(req: Request): Promise<Response> {
+  try {
+    const body = await req.json() as { data?: string; extension?: string; mimeType?: string }
+    if (!body.data) return errorResponse('Missing data', 400)
+
+    const ext = (body.extension || 'png').replace(/^\./, '')
+    const buffer = Buffer.from(body.data, 'base64')
+
+    const importDir = join(IMAGES_DIR, 'import')
+    if (!existsSync(importDir)) {
+      await mkdir(importDir, { recursive: true })
+    }
+
+    const hash = createHash('md5').update(body.data).digest('hex').slice(0, 12)
+    const fileName = `${hash}.${ext}`
+    const filePath = join(importDir, fileName)
+
+    await writeFile(filePath, new Uint8Array(buffer))
+
+    // 使用请求的 origin 构造 Notion API 可访问的绝对 URL
+    const origin = new URL(req.url).origin
+
+    return jsonResponse({
+      url: `${origin}/api/images/import/${fileName}`,
+    })
+  } catch (e) {
+    return errorResponse(`Image import error: ${e}`, 500)
+  }
+}
+
+/**
+ * 代理创建 Notion 数据库页面（浏览器端被 CORS 阻止，须经服务端代理）。
+ * 请求头需携带 X-Notion-Token。
+ */
+async function handleCreateDatabasePage(req: Request): Promise<Response> {
+  const notionToken = req.headers.get('X-Notion-Token')
+  if (!notionToken) {
+    return errorResponse('Missing X-Notion-Token header', 401)
+  }
+
+  try {
+    const body = await req.text()
+    const res = await fetch(`${NOTION_API_BASE}/pages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${notionToken}`,
+        'Notion-Version': NOTION_VERSION,
+        'Content-Type': 'application/json',
+      },
+      body,
+    })
+
+    if (!res.ok) {
+      const err = await res.text()
+      return jsonResponse({ ok: false, error: `${res.status}: ${err}` }, res.status)
+    }
+
+    return jsonResponse({ ok: true })
+  } catch (e) {
+    return errorResponse(`Create page error: ${e}`, 500)
   }
 }
 
