@@ -192,14 +192,15 @@ async function downloadImage(remoteUrl: string, rootPageId: string): Promise<str
     baseName = decodeURIComponent(pathParts[pathParts.length - 1]) || 'image'
   } catch { /* ignore */ }
 
-  // 基于原始 URL 哈希生成唯一文件名，同一 URL 产生同一文件名 → 替换
-  const hash = createHash('md5').update(remoteUrl).digest('hex').slice(0, 12)
+  // 基于 URL pathname 哈希生成唯一文件名（剔除 query string，避免 presigned URL 签名变化导致重复下载）
+  const stableKey = new URL(remoteUrl).pathname
+  const hash = createHash('md5').update(stableKey).digest('hex').slice(0, 12)
   const ext = extname(baseName).slice(0, 8).toLowerCase() || '.bin'
   const fileName = `${hash}${ext}`
   const rootDir = join(IMAGES_DIR, rootPageId)
   const filePath = join(rootDir, fileName)
 
-  // 文件已存在则跳过下载（同一 URL 去重）
+  // 文件已存在则跳过下载
   if (existsSync(filePath)) return `/api/images/${rootPageId}/${fileName}`
 
   try {
