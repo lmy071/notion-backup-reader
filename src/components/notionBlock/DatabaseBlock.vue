@@ -494,11 +494,13 @@ async function handleImport(file: File) {
       const row = rows[i]
       const titleValue = row[schema.titleKey]
 
-      // 7a. 上传 files 列的图片到服务器（获取外部 URL）
+      // 7a. 上传 files 列的图片到 PicList 图床（带重试）
       const imageUrls: Record<string, string[]> = {}
       const filesColumns = Object.keys(schema.properties).filter(
         k => schema.properties[k].type === 'files',
       )
+      let uploadAborted = false
+
       for (const col of filesColumns) {
         const key = `${col}:${rn}`
         const img = images.get(key)
@@ -507,7 +509,24 @@ async function handleImport(file: File) {
         // 上传前间隔 1s
         await delay(1000)
 
-        const url = await uploadImageForImport(img)
+        // 重试逻辑：最多 5 次，间隔 5s
+        let url: string | null = null
+        for (let attempt = 1; attempt <= 5; attempt++) {
+          url = await uploadImageForImport(img)
+          if (url) break
+
+          if (attempt < 5) {
+            importLogs.value.push({
+              level: 'warn',
+              message: `"${titleValue}" ${col} 图片上传失败（第 ${attempt}/5 次），5s 后重试...`,
+              row: rn,
+              column: col,
+              time: Date.now(),
+            })
+            await delay(5000)
+          }
+        }
+
         if (url) {
           imageUrls[col] = [url]
           importLogs.value.push({
@@ -521,13 +540,20 @@ async function handleImport(file: File) {
           await delay(1000)
         } else {
           importLogs.value.push({
-            level: 'warn',
-            message: `"${titleValue}" ${col} 图片上传失败，将不导入图片`,
+            level: 'error',
+            message: `"${titleValue}" ${col} 图片上传失败（已重试 5 次），终止导入`,
             row: rn,
             column: col,
             time: Date.now(),
           })
+          uploadAborted = true
+          break
         }
+      }
+
+      if (uploadAborted) {
+        importing.value = false
+        return
       }
 
       // 7b. 构建 Notion properties
