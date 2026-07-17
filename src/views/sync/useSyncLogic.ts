@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { usePageHistory } from '@/composables/usePageHistory'
-import { sync } from '@/services/sync'
-import type { BatchSyncProgress, SaveProgressEvent } from '@/services/sync'
+import { useConfigStore } from '@/stores/config'
+import { startSyncSync, type SyncTaskStatus } from '@/services/sse-sync'
 
 export function useSyncLogic() {
   const inputText = ref('')
@@ -9,33 +9,24 @@ export function useSyncLogic() {
   const isSyncing = ref(false)
   const isPaused = ref(false)
   const overallProgress = ref(0)
-  const saveProgress = ref<SaveProgressEvent | null>(null)
   const logMessages = ref<string[]>([])
-  const taskMap = ref<Map<string, { title: string; status: string; progress: number }>>(new Map())
+  const taskMap = ref<Map<string, SyncTaskStatus>>(new Map())
   const { items: historyList, cleanupStaleEntries } = usePageHistory()
 
-  // 清理 localStorage 中历史遗留的子页面条目
   cleanupStaleEntries()
 
   /** 从 Notion 页面链接中提取 page ID */
   function extractId(raw: string): string | null {
     const s = raw.trim()
     if (!s) return null
-
-    // URL 格式: https://app.notion.com/p/{32hex}?... 或 https://notion.so/{32hex}?...
     const urlMatch = s.match(/\/(?:pages?\/)?([0-9a-fA-F]{32})(?:[?#]|$)/)
     if (urlMatch) return urlMatch[1]
-
-    // 带横线的 UUID 格式
     const uuidMatch = s.match(
       /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
     )
     if (uuidMatch) return uuidMatch[0]
-
-    // 纯 32 位 hex
     const hexMatch = s.match(/^[0-9a-fA-F]{32}$/)
     if (hexMatch) return hexMatch[0]
-
     return null
   }
 
@@ -66,48 +57,33 @@ export function useSyncLogic() {
   }
 
   function addLog(msg: string) {
-    logMessages.value.push(`[${new Date().toLocaleTimeString()}] ${msg}`)
+    logMessages.value.push(msg)
+  }
+
+  /** 待刷新的日志缓冲区 — 逐字 SSE 流到达时的暂存 */
+  let pendingLine = ''
+  let rafId = 0
+
+  function flushPendingLine() {
+    if (pendingLine) {
+      logMessages.value.push(pendingLine)
+      pendingLine = ''
+    }
+  }
+
+  function scheduleFlush() {
+    if (rafId) return
+    rafId = requestAnimationFrame(() => {
+      rafId = 0
+      if (pendingLine) {
+        logMessages.value = [...logMessages.value, pendingLine]
+        pendingLine = ''
+      }
+    })
   }
 
   function parseInputIds(): string[] {
     return parsedIds.value
-  }
-
-  function handleProgress(progress: BatchSyncProgress) {
-    overallProgress.value = progress.overall
-    const map = new Map<string, { title: string; status: string; progress: number }>()
-    for (const [id, task] of progress.tasks) {
-      map.set(id, {
-        title: task.title,
-        status: task.status,
-        progress: task.progress,
-      })
-      // 只在新状态出现时打印一次日志（避免重复回调导致的冗余日志）
-      const prev = taskMap.value.get(id)
-      if (task.status !== prev?.status) {
-        if (task.status === 'done') {
-          addLog(`✅ ${task.title} — 同步完成`)
-        } else if (task.status === 'error') {
-          addLog(`❌ ${task.title} — ${task.error || '同步失败'}`)
-        }
-      }
-    }
-    taskMap.value = map
-  }
-
-  function handleSaveProgress(event: SaveProgressEvent) {
-    saveProgress.value = event
-    if (event.type === 'progress') {
-      if (event.stage === 'images') {
-        addLog(`🖼 ${event.message}`)
-      } else if (event.stage === 'saving' && event.pageTitle) {
-        addLog(`💾 ${event.message}`)
-      }
-    } else if (event.type === 'done') {
-      addLog('✅ 全部保存完成')
-    } else if (event.type === 'error') {
-      addLog(`❌ 保存失败: ${event.message}`)
-    }
   }
 
   async function startBatchSync() {
@@ -117,17 +93,47 @@ export function useSyncLogic() {
     isSyncing.value = true
     isPaused.value = false
     overallProgress.value = 0
-    saveProgress.value = null
     logMessages.value = []
     taskMap.value = new Map()
 
-    addLog(`开始批量同步 ${allIds.length} 个页面...`)
+    const { config } = useConfigStore()
 
     try {
-      await sync.syncPages(allIds, handleProgress, handleSaveProgress)
-      addLog('全部同步任务完成 + 保存完成')
+      await new Promise<void>((resolve, reject) => {
+        startSyncSync(
+          { pageIds: allIds, apiKey: config.apiKey },
+          {
+            onLog(chunk) {
+              pendingLine += chunk
+              scheduleFlush()
+            },
+            onFlush() {
+              flushPendingLine()
+            },
+            onTask(task) {
+              const map = new Map(taskMap.value)
+              map.set(task.pageId, task)
+              taskMap.value = map
+
+              // 计算整体进度
+              let sum = 0
+              for (const t of map.values()) sum += t.progress
+              overallProgress.value = map.size > 0
+                ? Math.round(sum / map.size)
+                : 0
+            },
+            onDone() {
+              resolve()
+            },
+            onError(msg) {
+              logMessages.value.push(`💥 ${msg}`)
+              reject(new Error(msg))
+            },
+          },
+        )
+      })
     } catch (e) {
-      addLog(`同步中断: ${e instanceof Error ? e.message : String(e)}`)
+      // error already logged via onError
     } finally {
       isSyncing.value = false
       isPaused.value = false
@@ -136,19 +142,15 @@ export function useSyncLogic() {
 
   function pauseSync() {
     isPaused.value = true
-    addLog('⏸ 同步已暂停')
   }
 
   function resumeSync() {
     isPaused.value = false
-    addLog('▶ 同步已恢复')
   }
 
   function cancelSync() {
-    sync.cancel()
     isSyncing.value = false
     isPaused.value = false
-    addLog('⏹ 同步已取消')
   }
 
   return {
@@ -158,7 +160,6 @@ export function useSyncLogic() {
     isSyncing,
     isPaused,
     overallProgress,
-    saveProgress,
     logMessages,
     taskMap,
     allTargetIds,

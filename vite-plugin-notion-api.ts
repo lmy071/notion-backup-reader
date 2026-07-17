@@ -305,6 +305,11 @@ async function handleRequest(req: Request): Promise<Response> {
     return handleCreateDatabasePage(req)
   }
 
+  // ── POST /api/sync/sse — 全链路 SSE 同步（fetch→parse→save 一站式流式输出） ──
+  if (method === 'POST' && path === '/api/sync/sse') {
+    return handleSyncSSE(req)
+  }
+
   // ── GET /api/storage/page/:rootPageId/:date/:pageId — 读取单个页面 ──
   if (method === 'GET' && path.startsWith('/api/storage/page/')) {
     // segments = ['api','storage','page','rootPageId','date','pageId',...]
@@ -877,6 +882,317 @@ async function buildBacklinks(
 }
 
 // ── 文件系统助手 ──────────────────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════════════════
+//  SSE 同步引擎（服务端全链路）
+// ═══════════════════════════════════════════════════════════════════
+
+/** 逐字发送日志到 SSE 流 */
+function snkLog(ctrl: ReadableStreamDefaultController, message: string): void {
+  const encoder = new TextEncoder()
+  for (const char of message) {
+    ctrl.enqueue(encoder.encode(sseEvent('log', { chunk: char })))
+  }
+  // 发送换行作为行结束标记
+  ctrl.enqueue(encoder.encode(sseEvent('log', { chunk: '\n' })))
+}
+
+/** 发送单任务状态 */
+function snkTask(ctrl: ReadableStreamDefaultController, task: Record<string, unknown>): void {
+  ctrl.enqueue(new TextEncoder().encode(sseEvent('task', task)))
+}
+
+// ── POST /api/sync/sse 路由分发 ──
+
+async function handleSyncSSE(req: Request): Promise<Response> {
+  const notionToken = req.headers.get('X-Notion-Token')
+  if (!notionToken) return errorResponse('Missing X-Notion-Token header', 401)
+
+  const body = await req.json() as { pageIds: string[] }
+  const pageIds = body.pageIds
+  if (!pageIds || pageIds.length === 0) return errorResponse('Missing pageIds', 400)
+
+  const commonHeaders: Record<string, string> = {
+    'Authorization': `Bearer ${notionToken}`,
+    'Notion-Version': NOTION_VERSION,
+  }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder()
+      const log = (msg: string) => snkLog(controller, msg)
+      const task = (t: Record<string, unknown>) => snkTask(controller, t)
+      const done = (message?: string) => {
+        controller.enqueue(encoder.encode(sseEvent('done', { message: message || '同步完成' })))
+      }
+      const error = (msg: string) => {
+        controller.enqueue(encoder.encode(sseEvent('error', { message: msg })))
+      }
+
+      try {
+        const rootPageId = pageIds[0]
+        const visited = new Set<string>()
+        const collected: Array<{ page: Record<string, unknown>; databases?: Array<{ databaseId: string; database: Record<string, unknown>; results?: unknown }> }> = []
+
+        await log(`🚀 开始同步 ${pageIds.length} 个页面...\n`)
+
+        // 并发控制参数
+        const maxConcurrency = 2
+        const minInterval = 350
+        let running = 0
+        const queue: Array<() => Promise<void>> = []
+        let lastReqTime = 0
+
+        const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+
+        const enqueue = (fn: () => Promise<void>): Promise<void> => {
+          return new Promise<void>((resolve, reject) => {
+            queue.push(async () => {
+              try { await fn(); resolve() } catch (e) { reject(e) }
+            })
+            pump()
+          })
+        }
+
+        let pumping = false
+        const pump = async () => {
+          if (pumping) return
+          pumping = true
+          try {
+            while (queue.length > 0) {
+              if (running >= maxConcurrency) {
+                await delay(50)
+                continue
+              }
+              const elapsed = Date.now() - lastReqTime
+              if (elapsed < minInterval) {
+                await delay(minInterval - elapsed)
+                continue
+              }
+              const job = queue.shift()
+              if (!job) continue
+              running++
+              lastReqTime = Date.now()
+              job().finally(() => { running--; pump() })
+            }
+          } finally {
+            pumping = false
+          }
+        }
+
+        // ── 同步单页 ──
+        const syncOnePage = async (pageId: string, initialTitle?: string, isChild = false): Promise<void> => {
+          if (visited.has(pageId)) return
+          visited.add(pageId)
+
+          let title = initialTitle || pageId
+
+          task({ pageId, title, status: 'pending', progress: 0 })
+
+          try {
+            await log(`📄 开始同步: ${title}\n`)
+            task({ pageId, title, status: 'fetching', progress: 10 })
+
+            // Phase 1: fetch page
+            const [pageRes, blocksRes] = await Promise.all([
+              fetch(`${NOTION_API_BASE}/pages/${pageId}`, { headers: commonHeaders }),
+              fetchBlocks(pageId, commonHeaders),
+            ])
+
+            if (!pageRes.ok) {
+              const err = await pageRes.text()
+              throw new Error(`获取页面失败: ${pageRes.status} ${err}`)
+            }
+
+            const pageData = await pageRes.json() as Record<string, unknown>
+            const properties = (pageData.properties as Record<string, unknown>) || {}
+
+            // 提取标题
+            for (const key of Object.keys(properties)) {
+              const prop = properties[key] as Record<string, unknown>
+              if (prop?.type === 'title') {
+                const titleArr = (prop.title as Array<{ plain_text: string }>) || []
+                if (titleArr.length > 0) {
+                  title = titleArr.map(t => t.plain_text).join('') || title
+                }
+                break
+              }
+            }
+
+            task({ pageId, title, status: 'fetching', progress: 50 })
+
+            const rawBlocks = (blocksRes || []) as Array<Record<string, unknown>>
+
+            const rawPage = {
+              pageId: pageData.id as string || pageId,
+              title,
+              blocks: rawBlocks,
+              rawPageData: pageData,
+            }
+
+            // Phase 2: store raw data
+            const pageBlockMap: Record<string, Record<string, unknown>> = {}
+            for (const rawBlock of rawBlocks) {
+              pageBlockMap[(rawBlock as Record<string, unknown>).id as string] = rawBlock as Record<string, unknown>
+            }
+
+            // Phase 3: fetch databases
+            const databases: Array<{ databaseId: string; database: Record<string, unknown> }> = []
+            for (const rawBlock of rawBlocks) {
+              const b = rawBlock as Record<string, unknown>
+              if (b.type === 'child_database') {
+                const dbId = b.id as string
+                const dbTitle = ((b as { child_database?: { title?: string } }).child_database?.title as string) || dbId
+                try {
+                  await log(`🗄 获取数据库: ${dbTitle}\n`)
+                  const [schemaRes, queryRes] = await Promise.all([
+                    fetch(`${NOTION_API_BASE}/databases/${dbId}`, { headers: commonHeaders }),
+                    fetch(`${NOTION_API_BASE}/databases/${dbId}/query`, {
+                      method: 'POST', headers: commonHeaders, body: JSON.stringify({ page_size: 100 })
+                    }),
+                  ])
+                  if (schemaRes.ok && queryRes.ok) {
+                    const schema = await schemaRes.json() as Record<string, unknown>
+                    const query = await queryRes.json() as Record<string, unknown>
+                    const db = {
+                      databaseId: dbId,
+                      title: dbTitle,
+                      schema: schema,
+                      results: (query as { results?: unknown }).results ?? [],
+                    }
+                    databases.push({ databaseId: dbId, database: db })
+                    await log(`✅ 数据库获取完成 (${Array.isArray(db.results) ? db.results.length : 0} 条记录)\n`)
+                  }
+                } catch (e) {
+                  await log(`⚠️ 数据库获取失败: ${e instanceof Error ? e.message : String(e)}\n`)
+                }
+              }
+            }
+
+            collected.push({ page: rawPage, databases: databases.length > 0 ? databases : undefined })
+
+            task({ pageId, title, progress: 80 })
+
+            // Phase 4: detect children
+            const children: Array<{ blockId: string; type: string; title: string }> = []
+            for (const rawBlock of rawBlocks) {
+              const b = rawBlock as Record<string, unknown>
+              if ((b.type as string) === 'child_page' || (b.type as string) === 'child_database') {
+                const data = b[(b.type as string)] as Record<string, unknown> | undefined
+                children.push({
+                  blockId: b.id as string,
+                  type: b.type as string,
+                  title: (data?.title as string) || (b.id as string),
+                })
+              }
+            }
+
+            if (children.length > 0) {
+              await log(`📂 ${title} — 发现 ${children.length} 个子页面/数据库\n`)
+            }
+
+            task({ pageId, title, status: 'done', progress: 100 })
+
+            // Phase 5: recurse into children (sequential to avoid deadlock)
+            for (const child of children) {
+              if (visited.has(child.blockId)) continue
+              if (child.type === 'child_page') {
+                await syncOnePage(child.blockId, child.title, true)
+              } else if (child.type === 'child_database') {
+                // sync child database pages
+                visited.add(child.blockId)
+                try {
+                  const dbRes = await fetch(
+                    `${NOTION_API_BASE}/databases/${child.blockId}/query`,
+                    { method: 'POST', headers: commonHeaders, body: JSON.stringify({ page_size: 100 }) },
+                  )
+                  if (dbRes.ok) {
+                    const dbData = await dbRes.json() as Record<string, unknown>
+                    const results = (dbData.results || []) as Array<Record<string, unknown>>
+                    const subTasks = results
+                      .filter(p => !visited.has(p.id as string))
+                      .map(p => () => syncOnePage(p.id as string, extractTitle(p), true))
+                    if (subTasks.length > 0) {
+                      await Promise.all(subTasks.map(fn => enqueue(fn)))
+                    }
+                  }
+                } catch (e) {
+                  await log(`⚠️ 子数据库获取失败: ${e instanceof Error ? e.message : String(e)}\n`)
+                }
+              }
+            }
+
+            if (!isChild) {
+              await log(`✅ ${title} — 同步完成 (${rawBlocks.length} 个 block)\n`)
+            }
+          } catch (e) {
+            const errMsg = e instanceof Error ? e.message : String(e)
+            await log(`❌ ${title} — 同步失败: ${errMsg}\n`)
+            task({ pageId, title, status: 'error', progress: 0, error: errMsg })
+          }
+        }
+
+        function extractTitle(pageData: Record<string, unknown>): string {
+          const props = pageData.properties as Record<string, unknown> | undefined
+          if (!props) return pageData.id as string || 'unknown'
+          for (const key of Object.keys(props)) {
+            const p = props[key] as Record<string, unknown>
+            if (p?.type === 'title') {
+              const arr = (p.title as Array<{ plain_text: string }>) || []
+              if (arr.length > 0) return arr.map(t => t.plain_text).join('') || (pageData.id as string)
+              break
+            }
+          }
+          return pageData.id as string || 'unknown'
+        }
+
+        // ── 启动所有根任务（并发） ──
+        const rootTasks = pageIds.map(pid => () => syncOnePage(pid))
+        await Promise.all(rootTasks.map(fn => enqueue(fn)))
+
+        // 等待队列完全清空
+        while (running > 0 || queue.length > 0) {
+          await delay(100)
+        }
+
+        // ── 保存 ──
+        if (collected.length > 0) {
+          await log('💾 开始保存同步结果...\n')
+
+          // 下载图片
+          await log('🖼 下载远程图片...\n')
+          await downloadAndReplaceImages(collected, rootPageId)
+          await log('🖼 图片下载完成\n')
+
+          // 逐页写入
+          await performSaveWrites(rootPageId, collected, (_pid: string, _title: string) => {
+            // 由于 SSE 已过 here 不用再发任务
+          })
+
+          await log('💾 保存完成\n')
+        }
+
+        await log('🎉 全部同步任务完成\n')
+        done('sync complete')
+      } catch (e) {
+        error(e instanceof Error ? e.message : String(e))
+        await log(`💥 同步中断: ${e instanceof Error ? e.message : String(e)}\n`)
+      } finally {
+        controller.close()
+      }
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  })
+}
+
+// ═══════════════════════════════════════════════════════════════════
 
 /** 根据文件扩展名返回 MIME type */
 function getContentType(ext: string): string {
