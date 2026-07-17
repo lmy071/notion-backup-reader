@@ -434,7 +434,7 @@ async function handleRequest(req: Request): Promise<Response> {
 
   // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId — 反向链接 ──
   if (method === 'GET' && path.startsWith('/api/storage/backlinks/')) {
-    if (segments.length < 7) return errorResponse('Invalid path', 400)
+    if (segments.length < 6) return errorResponse('Invalid path', 400)
     const rootPageId = segments[3]
     const date = segments[4]
     const pageId = segments.slice(5).join('/')
