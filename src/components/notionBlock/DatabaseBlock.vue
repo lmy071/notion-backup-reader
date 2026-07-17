@@ -81,8 +81,11 @@ async function loadDatabase() {
 
   // Check if already provided via inject
   if (pageDatabases?.value?.[dbId]) {
-    database.value = pageDatabases.value[dbId]
-    return
+    const db = pageDatabases.value[dbId]
+    if (db && db.rows) {
+      database.value = db
+      return
+    }
   }
 
   loading.value = true
@@ -735,7 +738,7 @@ async function handleImport(file: File) {
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="!database || database.rows.length === 0" class="p-4 rounded-lg text-sm text-center" style="color: var(--c-text-tertiary); background-color: var(--c-bg-secondary); border: 1px solid var(--c-border)">
+    <div v-else-if="!database?.rows?.length" class="p-4 rounded-lg text-sm text-center" style="color: var(--c-text-tertiary); background-color: var(--c-bg-secondary); border: 1px solid var(--c-border)">
       📊 空数据库
     </div>
 
@@ -767,7 +770,7 @@ async function handleImport(file: File) {
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <span>{{ filterResultCount !== database.rows.length && filteredRows.length < database.rows.length ? `导出 (${filteredRows.length})` : '导出' }}</span>
+            <span>{{ filterResultCount !== database.rows?.length && filteredRows.length < (database.rows?.length ?? 0) ? `导出 (${filteredRows.length})` : '导出' }}</span>
           </button>
           <!-- Import xlsx (only when db import mode is enabled) -->
           <button
@@ -790,11 +793,11 @@ async function handleImport(file: File) {
             @change="(e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleImport(f); (e.target as HTMLInputElement).value = '' }"
           />
           <div
-            v-if="filterResultCount !== database.rows.length"
+            v-if="filterResultCount !== database.rows?.length"
             class="text-xs shrink-0"
             style="color: var(--c-text-tertiary)"
           >
-            {{ filterResultCount }} / {{ database.rows.length }}
+            {{ filterResultCount }} / {{ database.rows?.length }}
           </div>
           <div class="relative">
             <input

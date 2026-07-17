@@ -66,20 +66,12 @@ export function useSyncLogic() {
   function appendChar(ch: string) {
     const msgs = logMessages.value
     if (ch === '\n') {
-      // 行结束：确认当前行
-      // （服务端发送 \n 时上一行内容已完整，只需确保空行不重复追加）
-      const last = msgs[msgs.length - 1]
-      if (last === undefined || last === '') {
-        // \n 前没有正在构建的行，推入空行
-        if (msgs.length === 0 || msgs[msgs.length - 1] !== '') {
-          logMessages.value = [...msgs, '']
-        }
-      }
-      // 有内容的 last 行已经完整，\n 后的下一个字符会开启新行
+      // 换行：当前行内容已经完整，推入空行占位，下一个字会填进去
+      // 如果没有内容则也推入空行（连续两个 \n 的空行效果）
+      logMessages.value = [...msgs, '']
       return
     }
-    if (msgs.length === 0 || msgs[msgs.length - 1] === undefined) {
-      // 第一行
+    if (msgs.length === 0) {
       logMessages.value = [ch]
       return
     }
