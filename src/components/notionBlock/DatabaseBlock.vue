@@ -359,7 +359,7 @@ async function exportXlsx() {
         if (!guid) continue
 
         const cell = excelRow.getCell(ci + 1)
-        cell.value = { formula: `_xlfn.DISPIMG("${guid}",1)` }
+        cell.value = { formula: `_xlfn.DISPIMG("${guid}",1)`, result: '' }
 
         ws.getColumn(ci + 1).width = Math.max(22, 14)
       }
