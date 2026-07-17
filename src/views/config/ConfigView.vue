@@ -6,6 +6,7 @@ const {
   apiKey,
   syncConcurrency,
   requestDelay,
+  enableDbImport,
   saved,
   testing,
   testResult,
