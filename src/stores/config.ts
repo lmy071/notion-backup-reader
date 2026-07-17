@@ -22,8 +22,7 @@ function isAppConfig(value: unknown): value is AppConfig {
     typeof obj.apiBaseUrl === 'string' &&
     typeof obj.apiKey === 'string' &&
     typeof obj.syncConcurrency === 'number' &&
-    typeof obj.requestDelay === 'number' &&
-    typeof obj.enableDbImport === 'boolean'
+    typeof obj.requestDelay === 'number'
   )
 }
 
@@ -36,7 +35,8 @@ export const useConfigStore = defineStore('config', () => {
       if (raw) {
         const parsed: unknown = JSON.parse(raw)
         if (isAppConfig(parsed)) {
-          return parsed
+          // 合并默认值，确保新增字段有初始值
+          return { ...getDefaultConfig(), ...parsed }
         }
       }
     } catch {
