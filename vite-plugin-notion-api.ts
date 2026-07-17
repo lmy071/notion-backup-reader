@@ -146,14 +146,15 @@ async function cleanupLogs(): Promise<void> {
 const NOTION_S3_RE = /https:\/\/prod-files-secure\.s3[^"'\s]+/g
 
 /**
- * 深度遍历 JSON，将所有 Notion S3 图片 URL 下载到本地 images/ 目录，
- * 并替换为本地路径 `/api/images/{hash}.{ext}`。
+ * 深度遍历 JSON，将所有 Notion S3 图片 URL 下载到本地 images/{rootPageId}/ 目录，
+ * 并替换为本地路径 `/api/images/{rootPageId}/{hash}.{ext}`。
+ * 同一 URL 只下载一次（基于内容哈希去重 → 替换而非新增）。
  */
-async function downloadAndReplaceImages(data: unknown): Promise<void> {
+async function downloadAndReplaceImages(data: unknown, rootPageId: string): Promise<void> {
   if (!data || typeof data !== 'object') return
 
   if (Array.isArray(data)) {
-    for (const item of data) await downloadAndReplaceImages(item)
+    for (const item of data) await downloadAndReplaceImages(item, rootPageId)
     return
   }
 
@@ -161,29 +162,29 @@ async function downloadAndReplaceImages(data: unknown): Promise<void> {
   for (const key of Object.keys(obj)) {
     const val = obj[key]
     if (typeof val === 'string' && NOTION_S3_RE.test(val)) {
-      obj[key] = await replaceUrlsInString(val)
+      obj[key] = await replaceUrlsInString(val, rootPageId)
     } else if (typeof val === 'object') {
-      await downloadAndReplaceImages(val)
+      await downloadAndReplaceImages(val, rootPageId)
     }
   }
 }
 
 /**
  * 替换字符串中的所有 Notion S3 URL 为本地路径。
- * 同一 URL 只下载一次（基于内容哈希去重）。
+ * 同一 URL 只下载一次（基于内容哈希去重 → 替换而非新增）。
  */
-async function replaceUrlsInString(str: string): Promise<string> {
+async function replaceUrlsInString(str: string, rootPageId: string): Promise<string> {
   const urls = str.match(NOTION_S3_RE) || []
   let result = str
   for (const url of urls) {
-    const localPath = await downloadImage(url)
+    const localPath = await downloadImage(url, rootPageId)
     if (localPath) result = result.replace(url, localPath)
   }
   return result
 }
 
-/** 下载单张图片到本地，返回本地路径。失败时返回空字符串（保留原 URL）。 */
-async function downloadImage(remoteUrl: string): Promise<string> {
+/** 下载单张图片到本地 images/{rootPageId}/，返回本地路径。失败时保留原 URL。 */
+async function downloadImage(remoteUrl: string, rootPageId: string): Promise<string> {
   let baseName = 'image'
   try {
     const urlObj = new URL(remoteUrl)
@@ -191,20 +192,23 @@ async function downloadImage(remoteUrl: string): Promise<string> {
     baseName = decodeURIComponent(pathParts[pathParts.length - 1]) || 'image'
   } catch { /* ignore */ }
 
+  // 基于原始 URL 哈希生成唯一文件名，同一 URL 产生同一文件名 → 替换
   const hash = createHash('md5').update(remoteUrl).digest('hex').slice(0, 12)
   const ext = extname(baseName).slice(0, 8).toLowerCase() || '.bin'
   const fileName = `${hash}${ext}`
-  const filePath = join(IMAGES_DIR, fileName)
+  const rootDir = join(IMAGES_DIR, rootPageId)
+  const filePath = join(rootDir, fileName)
 
-  if (existsSync(filePath)) return `/api/images/${fileName}`
+  // 文件已存在则跳过下载（同一 URL 去重）
+  if (existsSync(filePath)) return `/api/images/${rootPageId}/${fileName}`
 
   try {
     const res = await fetch(remoteUrl)
     if (!res.ok) return ''
     const buffer = Buffer.from(await res.arrayBuffer())
-    await mkdir(IMAGES_DIR, { recursive: true })
+    await mkdir(rootDir, { recursive: true })
     await writeFile(filePath, buffer)
-    return `/api/images/${fileName}`
+    return `/api/images/${rootPageId}/${fileName}`
   } catch {
     return ''
   }
@@ -233,13 +237,16 @@ async function handleRequest(req: Request): Promise<Response> {
   const method = req.method
   const segments = path.split('/').filter(Boolean)
 
-  // ── GET /api/images/:fileName — 提供本地缓存的图片 ──
+  // ── GET /api/images/:rootPageId/:fileName — 提供本地缓存的图片 ──
   if (method === 'GET' && path.startsWith('/api/images/')) {
-    const fileName = segments[2]
-    if (!fileName || fileName.includes('..') || fileName.includes('/')) {
-      return errorResponse('Invalid filename', 400)
+    // segments = ['api','images','rootPageId','fileName']
+    if (segments.length < 4) return errorResponse('Invalid path', 400)
+    const rootPageId = segments[2]
+    const fileName = segments[3]
+    if (rootPageId.includes('..') || fileName.includes('..')) {
+      return errorResponse('Invalid path', 400)
     }
-    const filePath = join(IMAGES_DIR, fileName)
+    const filePath = join(IMAGES_DIR, rootPageId, fileName)
     try {
       const buffer = await readFile(filePath)
       const contentType = getContentType(extname(fileName))
@@ -323,7 +330,7 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!pages || pages.length === 0) return errorResponse('Missing pages', 400)
 
     // 下载所有远程图片到本地 images/ 目录，替换 URL
-    await downloadAndReplaceImages(pages)
+    await downloadAndReplaceImages(pages, rootPageId)
 
     const today = new Date().toISOString().slice(0, 10)
     const batchDir = join(JSON_DIR, rootPageId, today)
@@ -446,6 +453,11 @@ async function handleRequest(req: Request): Promise<Response> {
     const rootDir = join(JSON_DIR, rootPageId)
     if (existsSync(rootDir)) {
       await rmRecursive(rootDir)
+    }
+    // 同时删除该根页面的图片缓存
+    const imagesRootDir = join(IMAGES_DIR, rootPageId)
+    if (existsSync(imagesRootDir)) {
+      await rmRecursive(imagesRootDir)
     }
     return jsonResponse({ ok: true })
   }
