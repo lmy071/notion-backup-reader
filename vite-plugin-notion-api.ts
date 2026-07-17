@@ -142,13 +142,13 @@ async function cleanupLogs(): Promise<void> {
 
 // ── 图片下载与替换 ──────────────────────────────────────────────────
 
-/** Notion S3 文件 URL 正则（匹配 AWS S3 签名 URL） */
-const NOTION_S3_RE = /https:\/\/prod-files-secure\.s3[^"'\s]+/g
+/** 匹配需要下载的外部文件 URL：Notion S3、Gitee raw 图片、其他图床 */
+const EXTERNAL_FILE_URL_RE =
+  /https:\/\/(?:prod-files-secure\.s3[^"'\s]+|gitee\.com\/[^"'\s]+\/[^"'\s]+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?[^"'\s]*)?)/g
 
 /**
- * 深度遍历 JSON，将所有 Notion S3 图片 URL 下载到本地 images/{rootPageId}/ 目录，
+ * 深度遍历 JSON，将所有外部图片 URL 下载到本地 images/{rootPageId}/ 目录，
  * 并替换为本地路径 `/api/images/{rootPageId}/{hash}.{ext}`。
- * 同一 URL 只下载一次（基于内容哈希去重 → 替换而非新增）。
  */
 async function downloadAndReplaceImages(data: unknown, rootPageId: string): Promise<void> {
   if (!data || typeof data !== 'object') return
@@ -161,7 +161,7 @@ async function downloadAndReplaceImages(data: unknown, rootPageId: string): Prom
   const obj = data as Record<string, unknown>
   for (const key of Object.keys(obj)) {
     const val = obj[key]
-    if (typeof val === 'string' && NOTION_S3_RE.test(val)) {
+    if (typeof val === 'string' && EXTERNAL_FILE_URL_RE.test(val)) {
       obj[key] = await replaceUrlsInString(val, rootPageId)
     } else if (typeof val === 'object') {
       await downloadAndReplaceImages(val, rootPageId)
@@ -170,11 +170,10 @@ async function downloadAndReplaceImages(data: unknown, rootPageId: string): Prom
 }
 
 /**
- * 替换字符串中的所有 Notion S3 URL 为本地路径。
- * 同一 URL 只下载一次（基于内容哈希去重 → 替换而非新增）。
+ * 替换字符串中的所有外部文件 URL 为本地路径。
  */
 async function replaceUrlsInString(str: string, rootPageId: string): Promise<string> {
-  const urls = str.match(NOTION_S3_RE) || []
+  const urls = str.match(EXTERNAL_FILE_URL_RE) || []
   let result = str
   for (const url of urls) {
     const localPath = await downloadImage(url, rootPageId)
