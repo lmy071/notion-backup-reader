@@ -89,7 +89,7 @@ watch(
 )
 
 // Extract column names from database properties
-function getColumnNames(): Array<{ key: string; name: string }> {
+function getColumnNames(): Array<{ key: string; name: string; type: string }> {
   if (!database.value) return []
   const cols = Object.entries(database.value.properties).map(([key, config]) => ({
     key,
@@ -104,7 +104,26 @@ function getColumnNames(): Array<{ key: string; name: string }> {
   })
 }
 
-// Extract cell text by property type
+/** 获取某列的 type 字符串 */
+function getColumnType(colKey: string): string {
+  return database.value?.properties[colKey]?.type ?? ''
+}
+
+// Extract file items from a files property value
+function getFilesList(val: DatabasePropertyValue | undefined): Array<{ name: string; url: string }> {
+  if (!val || val.type !== 'files') return []
+  return (val.files ?? []).map(f => ({
+    name: f.name,
+    url: f.file?.url ?? f.external?.url ?? '',
+  }))
+}
+
+/** 判断文件是否为图片（按扩展名） */
+function isImageFile(name: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(name)
+}
+
+// Extract cell text by property type (text-only, no HTML)
 function getCellText(val: DatabasePropertyValue | undefined): string {
   if (!val) return ''
   switch (val.type) {
@@ -237,7 +256,14 @@ function exportXlsx() {
   const aoa: string[][] = [
     cols.map(c => c.name),
     ...rows.map(row =>
-      cols.map(col => getCellText(row.properties[col.key]))
+      cols.map(col => {
+        const val = row.properties[col.key]
+        // files 类型导出 URL
+        if (val?.type === 'files') {
+          return (val.files ?? []).map(f => f.file?.url ?? f.external?.url ?? '').join('\n')
+        }
+        return getCellText(val)
+      })
     ),
   ]
 
@@ -387,7 +413,43 @@ function exportXlsx() {
                 class="px-4 py-2 text-sm whitespace-nowrap"
                 style="color: var(--c-text)"
               >
-                {{ getCellText(row.properties[col.key]) }}
+                <!-- files type: show thumbnails -->
+                <template v-if="getColumnType(col.key) === 'files'">
+                  <div class="flex items-center gap-1.5">
+                    <a
+                      v-for="(f, fi) in getFilesList(row.properties[col.key])"
+                      :key="fi"
+                      :href="f.url"
+                      target="_blank"
+                      class="block rounded border overflow-hidden shrink-0 cursor-pointer"
+                      :style="{
+                        width: '40px',
+                        height: '40px',
+                        borderColor: 'var(--c-border)',
+                      }"
+                      @click.stop
+                    >
+                      <img
+                        v-if="isImageFile(f.name)"
+                        :src="f.url"
+                        :alt="f.name"
+                        class="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                      <div
+                        v-else
+                        class="w-full h-full flex items-center justify-center text-10px"
+                        style="color: var(--c-text-tertiary)"
+                      >
+                        📄
+                      </div>
+                    </a>
+                  </div>
+                </template>
+                <!-- other types: plain text -->
+                <template v-else>
+                  {{ getCellText(row.properties[col.key]) }}
+                </template>
               </td>
             </tr>
             <!-- No results after filter -->
@@ -455,7 +517,45 @@ function exportXlsx() {
                     {{ col.name }}
                   </dt>
                   <dd class="flex-1 min-w-0 text-sm leading-relaxed" :style="{ color: 'var(--c-text)' }">
-                    {{ formatDrawerValue(selectedRow.properties[col.key]) }}
+                    <!-- files type: show images in drawer -->
+                    <template v-if="getColumnType(col.key) === 'files'">
+                      <div class="flex flex-wrap gap-2">
+                        <a
+                          v-for="(f, fi) in getFilesList(selectedRow!.properties[col.key])"
+                          :key="fi"
+                          :href="f.url"
+                          target="_blank"
+                          class="block rounded border overflow-hidden"
+                          :style="{
+                            width: isImageFile(f.name) ? '120px' : '40px',
+                            height: isImageFile(f.name) ? '120px' : '40px',
+                            borderColor: 'var(--c-border)',
+                          }"
+                        >
+                          <img
+                            v-if="isImageFile(f.name)"
+                            :src="f.url"
+                            :alt="f.name"
+                            class="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                          <div
+                            v-else
+                            class="w-full h-full flex items-center justify-center text-xs"
+                            style="color: var(--c-text-tertiary)"
+                          >
+                            📄
+                          </div>
+                        </a>
+                      </div>
+                      <div class="text-xs mt-1" style="color: var(--c-text-tertiary)">
+                        {{ getCellText(selectedRow!.properties[col.key]) }}
+                      </div>
+                    </template>
+                    <!-- other types -->
+                    <template v-else>
+                      {{ formatDrawerValue(selectedRow!.properties[col.key]) }}
+                    </template>
                   </dd>
                 </div>
               </dl>
