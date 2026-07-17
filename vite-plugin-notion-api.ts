@@ -515,7 +515,7 @@ async function handleRequest(req: Request): Promise<Response> {
       const mime = mimeMap[ext] ?? 'application/octet-stream'
       return new Response(buf, {
         status: 200,
-        headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=31536000, immutable' },
+        headers: { 'Content-Type': mime, 'Cache-Control': 'no-store' },
       })
     } catch {
       return new Response('Not Found', { status: 404 })
