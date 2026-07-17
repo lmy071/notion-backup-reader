@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { provide, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useReaderLogic } from './useReaderLogic'
 import ResizablePanel from '@/components/common/ResizablePanel.vue'
 import TocTree from '@/components/common/TocTree.vue'
@@ -11,6 +11,7 @@ const props = defineProps<{
 }>()
 
 const route = useRoute()
+const router = useRouter()
 const rootPageId = computed(() => (route.query.root as string) || props.pageId)
 const date = computed(() => (route.query.date as string) || '')
 const pageId = computed(() => props.pageId)
@@ -36,7 +37,7 @@ function navigateToChild(childPageId: string) {
   const r = rootPageId.value
   const d = date.value
   if (!r || !d) return
-  route.router?.push({
+  router.push({
     name: 'reader',
     params: { pageId: childPageId },
     query: { root: r, date: d },

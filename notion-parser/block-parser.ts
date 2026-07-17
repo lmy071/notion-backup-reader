@@ -1,5 +1,5 @@
 import type { RawBlock, RawRichText } from './types'
-import type { NotionBlock, NotionBlockType, RichText } from '../src/types/notion'
+import type { NotionBlock, RichText } from '../src/types/notion'
 import { parseRichText } from './rich-text-parser'
 
 /** Simple rich_text extractor helper — unwraps the block's typed data. */
@@ -10,7 +10,7 @@ function getRichText(data: { rich_text?: RawRichText[] } | undefined): RichText[
 export function parseBlock(raw: RawBlock): NotionBlock {
   const block: NotionBlock = {
     id: raw.id,
-    type: raw.type as NotionBlockType,
+    type: raw.type,
     has_children: raw.has_children ?? false,
   }
 

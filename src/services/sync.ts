@@ -234,7 +234,7 @@ async function syncOnePage(
       title,
     )
 
-    const rawBlocks = (pageResponse.blocks || []) as RawBlock[]
+    const rawBlocks = (pageResponse.blocks || []) as unknown as RawBlock[]
 
     updateTask(pageId, { title, status: 'fetching', progress: 50 })
 

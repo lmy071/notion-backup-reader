@@ -343,7 +343,7 @@ async function handleRequest(req: Request): Promise<Response> {
     }
 
     // 返回页面 + 子页面 + 数据库 + 子页面摘要
-    return jsonResponse({ page, children, databases, subPages: extractSubPageCards(page) })
+    return jsonResponse({ page, children, databases, subPages: extractSubPageCards(page as Record<string, unknown>) })
   }
 
   // ── GET /api/storage/batch-index/:rootPageId/:date — 批次索引 ──

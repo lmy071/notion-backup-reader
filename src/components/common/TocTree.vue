@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { HeadingItem } from './useReaderLogic'
+import type { HeadingItem } from '@/views/reader/useReaderLogic'
 
 const props = defineProps<{
   headings: HeadingItem[]
@@ -76,7 +76,7 @@ export const TocNodeRenderer = defineComponent({
     depth: { type: Number, default: 0 },
   },
   emits: ['navigate'],
-  setup(props, { emit }) {
+  setup(props, { emit }): () => ReturnType<typeof h> {
     return () => {
       return h('ul', {
         style: {

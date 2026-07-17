@@ -7,6 +7,7 @@ export interface RawBlock {
   heading_1?: { rich_text: RawRichText[] }
   heading_2?: { rich_text: RawRichText[] }
   heading_3?: { rich_text: RawRichText[] }
+  heading_4?: { rich_text: RawRichText[] }
   bulleted_list_item?: { rich_text: RawRichText[] }
   numbered_list_item?: { rich_text: RawRichText[] }
   to_do?: { rich_text: RawRichText[]; checked: boolean }
@@ -16,7 +17,7 @@ export interface RawBlock {
   code?: { rich_text: RawRichText[]; language: string; caption: RawRichText[] }
   image?: { type: string; external?: { url: string }; file?: { url: string }; caption: RawRichText[] }
   video?: { type: string; external?: { url: string }; file?: { url: string } }
-  file?: { type: string; external?: { url: string }; name: string }
+  file?: { type: string; external?: { url: string }; file?: { url: string }; name: string }
   bookmark?: { url: string; caption: RawRichText[] }
   embed?: { url: string }
   equation?: { expression: string }

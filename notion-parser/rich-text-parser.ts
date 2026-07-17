@@ -15,7 +15,7 @@ export function parseRichText(raw: RawRichText[]): RichText[] {
     }
 
     return {
-      type: item.type ?? 'text',
+      type: (item.type ?? 'text') as RichText['type'],
       plain_text: item.plain_text ?? '',
       href: item.href ?? null,
       bold: annotations.bold ?? false,
@@ -26,8 +26,8 @@ export function parseRichText(raw: RawRichText[]): RichText[] {
       color: annotations.color ?? 'default',
       content: item.text?.content ?? item.plain_text ?? '',
       link: item.text?.link ?? null,
-      mention: item.mention ?? null,
-      equation: item.equation?.expression ?? null,
+      mention: (item.mention as Record<string, unknown>) ?? undefined,
+      equation: item.equation?.expression ?? undefined,
     }
   })
 }
