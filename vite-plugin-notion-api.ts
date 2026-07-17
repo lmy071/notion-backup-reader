@@ -888,8 +888,10 @@ async function buildBacklinks(
 // ═══════════════════════════════════════════════════════════════════
 
 /** 逐字发送日志到 SSE 流 */
-function snkLog(ctrl: ReadableStreamDefaultController, message: string): void {
+async function snkLog(ctrl: ReadableStreamDefaultController, message: string): Promise<void> {
   ctrl.enqueue(new TextEncoder().encode(sseEvent('log', { line: message })))
+  // 让出宏任务：允许 Node.js HTTP 层将 enqueue 的数据 flush 到 TCP socket
+  await new Promise<void>(r => setTimeout(r, 0))
 }
 
 /** 发送单任务状态 */
