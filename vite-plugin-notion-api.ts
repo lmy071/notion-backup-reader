@@ -142,9 +142,36 @@ async function cleanupLogs(): Promise<void> {
 
 // ── 图片下载与替换 ──────────────────────────────────────────────────
 
-/** 匹配需要下载的外部文件 URL：Notion S3、Gitee raw 图片、其他图床 */
-const EXTERNAL_FILE_URL_RE =
-  /https:\/\/(?:prod-files-secure\.s3[^"'\s]+|gitee\.com\/[^"'\s]+\/[^"'\s]+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?[^"'\s]*)?)/g
+/** Notion S3 文件 URL */
+const NOTION_S3_RE = /https:\/\/prod-files-secure\.s3[^"'\s]+/g
+
+/** Gitee raw 图片 URL */
+const GITEE_IMAGE_RE =
+  /https:\/\/gitee\.com\/[^"'\s]+\/[^"'\s]+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?[^"'\s]*)?/g
+
+/** 需要下载替换的外部文件 URL 模式列表 */
+const EXTERNAL_FILE_URL_PATTERNS: RegExp[] = [NOTION_S3_RE, GITEE_IMAGE_RE]
+
+/** 检查字符串是否匹配任一外部文件 URL 模式 */
+function matchesExternalUrl(s: string): boolean {
+  return EXTERNAL_FILE_URL_PATTERNS.some(re => re.test(s))
+}
+
+/** 提取字符串中所有匹配的外部文件 URL（去重） */
+function extractExternalUrls(s: string): string[] {
+  const seen = new Set<string>()
+  const urls: string[] = []
+  for (const re of EXTERNAL_FILE_URL_PATTERNS) {
+    re.lastIndex = 0
+    for (const m of s.matchAll(re)) {
+      if (!seen.has(m[0])) {
+        seen.add(m[0])
+        urls.push(m[0])
+      }
+    }
+  }
+  return urls
+}
 
 /**
  * 深度遍历 JSON，将所有外部图片 URL 下载到本地 images/{rootPageId}/ 目录，
@@ -161,7 +188,7 @@ async function downloadAndReplaceImages(data: unknown, rootPageId: string): Prom
   const obj = data as Record<string, unknown>
   for (const key of Object.keys(obj)) {
     const val = obj[key]
-    if (typeof val === 'string' && EXTERNAL_FILE_URL_RE.test(val)) {
+    if (typeof val === 'string' && matchesExternalUrl(val)) {
       obj[key] = await replaceUrlsInString(val, rootPageId)
     } else if (typeof val === 'object') {
       await downloadAndReplaceImages(val, rootPageId)
@@ -173,7 +200,7 @@ async function downloadAndReplaceImages(data: unknown, rootPageId: string): Prom
  * 替换字符串中的所有外部文件 URL 为本地路径。
  */
 async function replaceUrlsInString(str: string, rootPageId: string): Promise<string> {
-  const urls = str.match(EXTERNAL_FILE_URL_RE) || []
+  const urls = extractExternalUrls(str)
   let result = str
   for (const url of urls) {
     const localPath = await downloadImage(url, rootPageId)
