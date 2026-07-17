@@ -269,14 +269,19 @@ function exportXlsx() {
 
   const ws = XLSX.utils.aoa_to_sheet(aoa)
 
-  // 列宽自适应（取表头与最长数据值的较大者，上限 40）
+  // 列宽自适应（取表头与最长数据值的较大者，×2 放宽，上限 80）
   ws['!cols'] = cols.map((c, ci) => {
     const colKey = cols[ci].key
-    const maxLen = Math.max(
-      c.name.length,
-      ...rows.map(row => getCellText(row.properties[colKey]).length),
-    )
-    return { wch: Math.min(maxLen + 3, 40) }
+    // files 列取实际导出文本长度（URL/文件名），其他列走 getCellText
+    const dataLengths = rows.map(row => {
+      const val = row.properties[colKey]
+      if (val?.type === 'files') {
+        return (val.files ?? []).map(f => f.file?.url ?? f.external?.url ?? f.name).join('\n').length
+      }
+      return getCellText(val).length
+    })
+    const maxLen = Math.max(c.name.length, ...dataLengths)
+    return { wch: Math.min((maxLen + 3) * 2, 80) }
   })
 
   const wb = XLSX.utils.book_new()

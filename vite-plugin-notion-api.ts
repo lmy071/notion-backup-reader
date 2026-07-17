@@ -254,7 +254,7 @@ async function handleRequest(req: Request): Promise<Response> {
         status: 200,
         headers: {
           'Content-Type': contentType,
-          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Cache-Control': 'no-store',
         },
       })
     } catch {
@@ -987,6 +987,8 @@ export function notionApiPlugin(): Plugin {
           return next()
         }
 
+        // 将 /api/images/* 的 GET 请求提前短路，不读 body
+        // 原因：部分 Node 版本下 await new Promise 在无 body GET 上可能阻塞
         // 从 Node.js 原生请求构造标准 Web Request
         const url = `http://localhost${req.url}`
         const headers = new Headers()
@@ -995,16 +997,18 @@ export function notionApiPlugin(): Plugin {
           else if (Array.isArray(v)) headers.set(k, v.join(', '))
         }
 
-        // 读取请求体
+        // 只在有请求体时才读取（POST/PUT/PATCH），GET/HEAD/DELETE 立即构造 Request
         let body: string | undefined
-        const chunks: Buffer[] = []
-        await new Promise<void>((resolve) => {
-          req.on('data', (chunk: Buffer) => chunks.push(chunk))
-          req.on('end', () => {
-            body = Buffer.concat(chunks).toString()
-            resolve()
+        if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'DELETE') {
+          const chunks: Buffer[] = []
+          await new Promise<void>((resolve) => {
+            req.on('data', (chunk: Buffer) => chunks.push(chunk))
+            req.on('end', () => {
+              body = Buffer.concat(chunks).toString()
+              resolve()
+            })
           })
-        })
+        }
 
         const request = new Request(url, {
           method: req.method,
@@ -1019,8 +1023,9 @@ export function notionApiPlugin(): Plugin {
           response.headers.forEach((value, key) => {
             _res.setHeader(key, value)
           })
-          const resBody = await response.text()
-          _res.end(resBody)
+          // 使用 arrayBuffer 支持二进制响应（图片等）
+          const resBody = await response.arrayBuffer()
+          _res.end(Buffer.from(resBody))
         } catch (e) {
           console.error('[notion-api-plugin] error:', e)
           _res.statusCode = 500
