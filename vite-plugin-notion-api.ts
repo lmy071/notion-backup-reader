@@ -1533,7 +1533,36 @@ export function notionApiPlugin(): Plugin {
           response.headers.forEach((value, key) => {
             _res.setHeader(key, value)
           })
-          // 使用 arrayBuffer 支持二进制响应（图片等）
+
+          // SSE 响应：直接 pipe ReadableStream，禁用缓冲
+          if (response.headers.get('Content-Type') === 'text/event-stream') {
+            const reader = response.body!.getReader()
+            const decoder = new TextDecoder()
+            const pump = async () => {
+              try {
+                while (true) {
+                  const { done, value } = await reader.read()
+                  if (done) {
+                    _res.end()
+                    break
+                  }
+                  // 立即写入 + flush，不使用缓冲
+                  const chunk = typeof value === 'string' ? value : decoder.decode(value, { stream: true })
+                  _res.write(chunk)
+                  // 强制 flush 到底层 socket
+                  if (typeof (_res as unknown as { flushHeaders?: () => void }).flushHeaders === 'function') {
+                    ;(_res as unknown as { flush: () => void }).flush?.()
+                  }
+                }
+              } catch {
+                _res.end()
+              }
+            }
+            pump()
+            return
+          }
+
+          // 普通响应：收集全部后一次性发送
           const resBody = await response.arrayBuffer()
           _res.end(Buffer.from(resBody))
         } catch (e) {
