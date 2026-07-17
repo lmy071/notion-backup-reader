@@ -58,6 +58,21 @@ async function readJsonSafe(filePath: string): Promise<unknown> {
   }
 }
 
+/** 将原始 Notion API 数据库 JSON 转为前端 NotionDatabase 格式 */
+function normalizeDatabase(raw: unknown): Record<string, unknown> {
+  const r = raw as Record<string, unknown>
+  const schema = (r.schema || {}) as Record<string, unknown>
+  return {
+    id: r.databaseId ?? r.id ?? '',
+    title: (r.title as string) ?? '',
+    properties: schema.properties ?? {},
+    rows: (Array.isArray(r.results) ? r.results.map((row: Record<string, unknown>) => ({
+      id: row.id ?? '',
+      properties: row.properties ?? {},
+    })) : []),
+  }
+}
+
 /** 写入 JSON 文件（自动创建父目录） */
 async function writeJson(filePath: string, data: unknown): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true })
@@ -354,7 +369,7 @@ async function handleRequest(req: Request): Promise<Response> {
       for (const dbFile of dbFiles) {
         const dbId = dbFile.replace('.json', '')
         const dbData = await readJsonSafe(join(databasesDir, dbFile))
-        if (dbData) databases[dbId] = dbData
+        if (dbData) databases[dbId] = normalizeDatabase(dbData)
       }
     }
 
