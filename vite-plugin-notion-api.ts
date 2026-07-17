@@ -1,12 +1,15 @@
 import type { Plugin, ViteDevServer } from 'vite'
 import { readFile, writeFile, mkdir, readdir, stat, unlink, appendFile } from 'node:fs/promises'
-import { join, dirname } from 'node:path'
+import { join, dirname, extname } from 'node:path'
 import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 
 // ── 常量定义 ──────────────────────────────────────────────────────
 
 /** JSON 数据根目录（备份存储） */
 const JSON_DIR = join(process.cwd(), 'json')
+/** 图片存储目录 */
+const IMAGES_DIR = join(process.cwd(), 'images')
 /** 日志文件目录 */
 const LOG_DIR = join(process.cwd(), 'log')
 /** 每个根页面最多保留的版本数 */
@@ -137,6 +140,76 @@ async function cleanupLogs(): Promise<void> {
   }
 }
 
+// ── 图片下载与替换 ──────────────────────────────────────────────────
+
+/** Notion S3 文件 URL 正则（匹配 AWS S3 签名 URL） */
+const NOTION_S3_RE = /https:\/\/prod-files-secure\.s3[^"'\s]+/g
+
+/**
+ * 深度遍历 JSON，将所有 Notion S3 图片 URL 下载到本地 images/ 目录，
+ * 并替换为本地路径 `/api/images/{hash}.{ext}`。
+ */
+async function downloadAndReplaceImages(data: unknown): Promise<void> {
+  if (!data || typeof data !== 'object') return
+
+  if (Array.isArray(data)) {
+    for (const item of data) await downloadAndReplaceImages(item)
+    return
+  }
+
+  const obj = data as Record<string, unknown>
+  for (const key of Object.keys(obj)) {
+    const val = obj[key]
+    if (typeof val === 'string' && NOTION_S3_RE.test(val)) {
+      obj[key] = await replaceUrlsInString(val)
+    } else if (typeof val === 'object') {
+      await downloadAndReplaceImages(val)
+    }
+  }
+}
+
+/**
+ * 替换字符串中的所有 Notion S3 URL 为本地路径。
+ * 同一 URL 只下载一次（基于内容哈希去重）。
+ */
+async function replaceUrlsInString(str: string): Promise<string> {
+  const urls = str.match(NOTION_S3_RE) || []
+  let result = str
+  for (const url of urls) {
+    const localPath = await downloadImage(url)
+    if (localPath) result = result.replace(url, localPath)
+  }
+  return result
+}
+
+/** 下载单张图片到本地，返回本地路径。失败时返回空字符串（保留原 URL）。 */
+async function downloadImage(remoteUrl: string): Promise<string> {
+  let baseName = 'image'
+  try {
+    const urlObj = new URL(remoteUrl)
+    const pathParts = urlObj.pathname.split('/')
+    baseName = decodeURIComponent(pathParts[pathParts.length - 1]) || 'image'
+  } catch { /* ignore */ }
+
+  const hash = createHash('md5').update(remoteUrl).digest('hex').slice(0, 12)
+  const ext = extname(baseName).slice(0, 8).toLowerCase() || '.bin'
+  const fileName = `${hash}${ext}`
+  const filePath = join(IMAGES_DIR, fileName)
+
+  if (existsSync(filePath)) return `/api/images/${fileName}`
+
+  try {
+    const res = await fetch(remoteUrl)
+    if (!res.ok) return ''
+    const buffer = Buffer.from(await res.arrayBuffer())
+    await mkdir(IMAGES_DIR, { recursive: true })
+    await writeFile(filePath, buffer)
+    return `/api/images/${fileName}`
+  } catch {
+    return ''
+  }
+}
+
 // ── API 路由分发 ─────────────────────────────────────────────────
 
 // URL 路径 → 路由参数映射：
@@ -159,6 +232,28 @@ async function handleRequest(req: Request): Promise<Response> {
   const path = url.pathname
   const method = req.method
   const segments = path.split('/').filter(Boolean)
+
+  // ── GET /api/images/:fileName — 提供本地缓存的图片 ──
+  if (method === 'GET' && path.startsWith('/api/images/')) {
+    const fileName = segments[2]
+    if (!fileName || fileName.includes('..') || fileName.includes('/')) {
+      return errorResponse('Invalid filename', 400)
+    }
+    const filePath = join(IMAGES_DIR, fileName)
+    try {
+      const buffer = await readFile(filePath)
+      const contentType = getContentType(extname(fileName))
+      return new Response(buffer, {
+        status: 200,
+        headers: {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        },
+      })
+    } catch {
+      return errorResponse('Image not found', 404)
+    }
+  }
 
   // ── GET /api/storage/index — 全局索引（首页卡片列表） ──
   if (method === 'GET' && path === '/api/storage/index') {
@@ -226,6 +321,9 @@ async function handleRequest(req: Request): Promise<Response> {
 
     if (!rootPageId) return errorResponse('Missing rootPageId', 400)
     if (!pages || pages.length === 0) return errorResponse('Missing pages', 400)
+
+    // 下载所有远程图片到本地 images/ 目录，替换 URL
+    await downloadAndReplaceImages(pages)
 
     const today = new Date().toISOString().slice(0, 10)
     const batchDir = join(JSON_DIR, rootPageId, today)
@@ -382,6 +480,33 @@ async function handleRequest(req: Request): Promise<Response> {
   if (method === 'POST' && path === '/api/storage/cleanup-logs') {
     await cleanupLogs()
     return jsonResponse({ ok: true })
+  }
+
+  // ── GET /api/images/:filename — 提供本地缓存的图片 ──
+  if (method === 'GET' && path.startsWith('/api/images/')) {
+    const filename = segments.slice(2).join('/')
+    const imagePath = join(IMAGES_DIR, filename)
+    try {
+      const buf = await readFile(imagePath)
+      const ext = extname(filename).toLowerCase()
+      const mimeMap: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.svg': 'image/svg+xml',
+        '.bmp': 'image/bmp',
+        '.ico': 'image/x-icon',
+      }
+      const mime = mimeMap[ext] ?? 'application/octet-stream'
+      return new Response(buf, {
+        status: 200,
+        headers: { 'Content-Type': mime, 'Cache-Control': 'public, max-age=31536000, immutable' },
+      })
+    } catch {
+      return new Response('Not Found', { status: 404 })
+    }
   }
 
   // ── /api/notion/* — 转发到 Notion API 代理 ──
@@ -786,6 +911,22 @@ async function buildBacklinks(
 }
 
 // ── 文件系统助手 ──────────────────────────────────────────────────
+
+/** 根据文件扩展名返回 MIME type */
+function getContentType(ext: string): string {
+  const map: Record<string, string> = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+    '.bmp': 'image/bmp',
+    '.ico': 'image/x-icon',
+    '.avif': 'image/avif',
+  }
+  return map[ext.toLowerCase()] || 'application/octet-stream'
+}
 
 /** 递归删除目录及其所有内容 */
 async function rmRecursive(dirPath: string): Promise<void> {
