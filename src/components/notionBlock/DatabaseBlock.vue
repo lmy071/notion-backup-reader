@@ -2,6 +2,17 @@
 import { ref, computed, inject, watch, type Ref } from 'vue'
 import type { NotionBlock, NotionDatabase, DatabasePropertyValue, NotionDatabaseRow, DatabasePropertyConfig } from '@/types/notion'
 import { storage } from '@/services/storage'
+import { useConfigStore } from '@/stores/config'
+import {
+  parseExcelFile,
+  buildDbSchema,
+  validateColumns,
+  validateRows,
+  buildNotionProperties,
+  createDatabasePage,
+  type ImportLog,
+} from '@/services/db-import'
+import ImportLogDrawer from '@/components/common/ImportLogDrawer.vue'
 
 const props = defineProps<{
   block: NotionBlock
@@ -17,6 +28,14 @@ const error = ref<string | null>(null)
 // Drawer state
 const drawerOpen = ref(false)
 const selectedRowId = ref<string | null>(null)
+
+// Import state
+const configStore = useConfigStore()
+const importLogs = ref<ImportLog[]>([])
+const importDrawerOpen = ref(false)
+const importing = ref(false)
+const importProgress = ref<{ done: number; total: number } | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
 
 // Filters
 const filterText = ref('')
@@ -365,6 +384,154 @@ async function exportXlsx() {
   link.click()
   URL.revokeObjectURL(link.href)
 }
+
+// ── 导入 Excel ────────────────────────────────────────────
+
+const showImport = computed(() => {
+  return configStore.config.enableDbImport
+})
+
+/** 判断当前数据库是否开启导入模式 */
+const importEnabled = computed(() => {
+  return configStore.config.enableDbImport && !!props.block.id
+})
+
+/** 触发文件选择 */
+function triggerImport() {
+  fileInput.value?.click()
+}
+
+/** 处理 Excel 文件导入 */
+async function handleImport(file: File) {
+  if (!database.value) return
+
+  importDrawerOpen.value = true
+  importLogs.value = []
+  importing.value = true
+  importProgress.value = null
+
+  const apiKey = configStore.config.apiKey
+  if (!apiKey) {
+    importLogs.value.push({
+      level: 'error',
+      message: '未配置 Notion Integration Token，请在配置页设置',
+      time: Date.now(),
+    })
+    importing.value = false
+    return
+  }
+
+  try {
+    // 1. 解析 Excel
+    importLogs.value.push({ level: 'info', message: '正在解析 Excel 文件...', time: Date.now() })
+    const { headers, rows } = await parseExcelFile(file)
+    importLogs.value.push({
+      level: 'info',
+      message: `解析完成：${headers.length} 列, ${rows.length} 行数据`,
+      time: Date.now(),
+    })
+
+    // 2. 构建 schema
+    const schema = buildDbSchema(database.value)
+
+    // 3. 列校验
+    const colErrors = validateColumns(headers, schema)
+    for (const e of colErrors) {
+      importLogs.value.push({ level: 'warn', message: e.message, column: e.column, time: Date.now() })
+    }
+
+    // 4. 构建已有 title 集合
+    const existingTitles = new Set<string>()
+    for (const row of database.value.rows) {
+      const titleKey = schema.titleKey
+      if (!titleKey) continue
+      const val = row.properties[titleKey]
+      if (val?.type === 'title') {
+        const t = val.title?.map(t => t.plain_text).join('') ?? ''
+        if (t) existingTitles.add(t)
+      }
+    }
+
+    // 5. 行校验
+    importLogs.value.push({ level: 'info', message: '正在校验数据...', time: Date.now() })
+    const rowLogs = validateRows(rows, schema, existingTitles)
+    importLogs.value.push(...rowLogs)
+
+    // 6. 统计
+    const errors = importLogs.value.filter(l => l.level === 'error' && l.row)
+    const skips = importLogs.value.filter(l => l.level === 'skip')
+    const toImport = rows.filter((_, i) => {
+      const rn = i + 1
+      return !errors.some(e => e.row === rn) && !skips.some(s => s.row === rn)
+    })
+
+    importLogs.value.push({
+      level: 'info',
+      message: `校验完成：${toImport.length} 条待导入, ${skips.length} 条已存在跳过, ${errors.length} 条有错误`,
+      time: Date.now(),
+    })
+
+    if (toImport.length === 0) {
+      importLogs.value.push({ level: 'warn', message: '没有需要导入的数据', time: Date.now() })
+      importing.value = false
+      return
+    }
+
+    // 7. 逐行导入
+    importProgress.value = { done: 0, total: toImport.length }
+    importLogs.value.push({ level: 'info', message: `开始导入 ${toImport.length} 条数据...`, time: Date.now() })
+
+    for (let i = 0; i < rows.length; i++) {
+      const rn = i + 1
+      // 跳过错误行和已存在行
+      if (errors.some(e => e.row === rn) || skips.some(s => s.row === rn)) continue
+
+      const row = rows[i]
+      const titleValue = row[schema.titleKey]
+      const properties = buildNotionProperties(row, schema)
+
+      const res = await createDatabasePage(props.block.id, properties, apiKey)
+
+      if (res.ok) {
+        importLogs.value.push({
+          level: 'success',
+          message: `"${titleValue}" 导入成功`,
+          row: rn,
+          time: Date.now(),
+        })
+      } else {
+        importLogs.value.push({
+          level: 'error',
+          message: `"${titleValue}" 导入失败: ${res.error}`,
+          row: rn,
+          time: Date.now(),
+        })
+      }
+
+      importProgress.value.done++
+
+      // 请求间隔
+      if (configStore.config.requestDelay > 0) {
+        await new Promise(resolve => setTimeout(resolve, configStore.config.requestDelay))
+      }
+    }
+
+    importLogs.value.push({
+      level: 'info',
+      message: `导入完成！成功 ${importLogs.value.filter(l => l.level === 'success').length} 条`,
+      time: Date.now(),
+    })
+  } catch (e) {
+    importLogs.value.push({
+      level: 'error',
+      message: e instanceof Error ? e.message : '导入过程异常',
+      time: Date.now(),
+    })
+  } finally {
+    importing.value = false
+    importProgress.value = null
+  }
+}
 </script>
 
 <template>
@@ -429,6 +596,26 @@ async function exportXlsx() {
             </svg>
             <span>{{ filterResultCount !== database.rows.length && filteredRows.length < database.rows.length ? `导出 (${filteredRows.length})` : '导出' }}</span>
           </button>
+          <!-- Import xlsx (only when db import mode is enabled) -->
+          <button
+            v-if="showImport"
+            class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+            style="background-color: var(--c-brand-light); color: var(--c-brand)"
+            title="从 Excel 导入数据"
+            @click.stop="triggerImport"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            <span>导入</span>
+          </button>
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".xlsx,.xls"
+            class="hidden"
+            @change="(e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleImport(f); (e.target as HTMLInputElement).value = '' }"
+          />
           <div
             v-if="filterResultCount !== database.rows.length"
             class="text-xs shrink-0"
@@ -668,3 +855,12 @@ async function exportXlsx() {
   transform: translateX(100%);
 }
 </style>
+
+<!-- 导入日志抽屉（放在最外层，覆盖整个页面） -->
+<ImportLogDrawer
+  :open="importDrawerOpen"
+  :logs="importLogs"
+  :importing="importing"
+  :import-progress="importProgress"
+  @close="importDrawerOpen = false"
+/>

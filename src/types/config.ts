@@ -3,4 +3,5 @@ export interface AppConfig {
   apiKey: string
   syncConcurrency: number
   requestDelay: number
+  enableDbImport: boolean
 }

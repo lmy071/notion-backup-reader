@@ -10,6 +10,8 @@ export function useConfigLogic() {
   const syncConcurrency = ref(store.config.syncConcurrency)
   const requestDelay = ref(store.config.requestDelay)
 
+  const enableDbImport = ref(store.config.enableDbImport)
+
   const saved = ref(false)
   const testing = ref(false)
   const testResult = ref<{ ok: boolean; message: string } | null>(null)
@@ -19,6 +21,7 @@ export function useConfigLogic() {
     store.config.apiKey = apiKey.value
     store.config.syncConcurrency = syncConcurrency.value
     store.config.requestDelay = requestDelay.value
+    store.config.enableDbImport = enableDbImport.value
     store.save()
     saved.value = true
     setTimeout(() => { saved.value = false }, 2000)
@@ -30,6 +33,7 @@ export function useConfigLogic() {
     apiKey.value = store.config.apiKey
     syncConcurrency.value = store.config.syncConcurrency
     requestDelay.value = store.config.requestDelay
+    enableDbImport.value = store.config.enableDbImport
   }
 
   async function testConnection() {
@@ -54,6 +58,7 @@ export function useConfigLogic() {
     apiKey,
     syncConcurrency,
     requestDelay,
+    enableDbImport,
     saved,
     testing,
     testResult,

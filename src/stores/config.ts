@@ -10,6 +10,7 @@ function getDefaultConfig(): AppConfig {
     apiKey: '',
     syncConcurrency: 2,
     requestDelay: 350,
+    enableDbImport: false,
   }
 }
 
@@ -20,7 +21,8 @@ function isAppConfig(value: unknown): value is AppConfig {
     typeof obj.apiBaseUrl === 'string' &&
     typeof obj.apiKey === 'string' &&
     typeof obj.syncConcurrency === 'number' &&
-    typeof obj.requestDelay === 'number'
+    typeof obj.requestDelay === 'number' &&
+    typeof obj.enableDbImport === 'boolean'
   )
 }
 
@@ -56,6 +58,7 @@ export const useConfigStore = defineStore('config', () => {
     config.apiKey = defaults.apiKey
     config.syncConcurrency = defaults.syncConcurrency
     config.requestDelay = defaults.requestDelay
+    config.enableDbImport = defaults.enableDbImport
     save()
   }
 

@@ -77,6 +77,32 @@ const {
         <p class="text-xs mt-1" style="color: var(--c-text-tertiary)">两次请求之间的最小间隔</p>
       </div>
 
+      <!-- 数据库导入模式 -->
+      <div class="mb-6 p-4 rounded-lg" style="background-color: var(--c-bg-secondary); border: 1px solid var(--c-border)">
+        <div class="flex items-center justify-between">
+          <div>
+            <label class="text-sm font-medium" style="color: var(--c-text-primary)" for="enableDbImport">数据库导入模式</label>
+            <p class="text-xs mt-1" style="color: var(--c-text-tertiary)">开启后可在数据库表格中导入 Excel 文件进行增量写入</p>
+          </div>
+          <button
+            id="enableDbImport"
+            class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer border-none outline-none"
+            :style="{ backgroundColor: enableDbImport ? 'var(--c-brand)' : 'var(--c-border)' }"
+            role="switch"
+            :aria-checked="enableDbImport"
+            @click="enableDbImport = !enableDbImport"
+          >
+            <span
+              class="inline-block h-4 w-4 rounded-full bg-white transition-transform"
+              :style="{ transform: enableDbImport ? 'translateX(22px)' : 'translateX(4px)' }"
+            />
+          </button>
+        </div>
+        <p v-if="enableDbImport" class="text-xs mt-3" style="color: var(--c-text-tertiary)">
+          ⚠️ 导入前请确认 Excel 列名与数据库属性名完全一致
+        </p>
+      </div>
+
       <!-- 操作按钮 -->
       <div class="flex items-center gap-3">
         <button
