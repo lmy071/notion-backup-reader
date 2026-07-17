@@ -269,13 +269,16 @@ async function exportXlsx() {
   if (!database.value || database.value.rows.length === 0) return
 
   const ExcelJS = await import('exceljs')
+  const JSZip = await import('jszip')
 
   const cols = getColumnNames()
   const rows = filteredRows.value
   const filesCols = cols.filter(c => c.type === 'files')
 
-  // 提前收集所有图片 URL，批量 fetch 为 buffer
-  const imageCache = new Map<string, ArrayBuffer | null>()
+  // ── 预取图片：url → { buffer, ext, localId } ──
+  const imageRegistry = new Map<string, { buffer: ArrayBuffer; ext: string; localId: number }>()
+  let nextImageId = 1
+
   if (filesCols.length > 0) {
     await Promise.all(
       rows.flatMap(row =>
@@ -284,18 +287,16 @@ async function exportXlsx() {
           if (val?.type !== 'files') return []
           return (val.files ?? [])
             .map(f => f.file?.url ?? f.external?.url ?? '')
-            .filter(url => url && !imageCache.has(url))
+            .filter(url => url && !imageRegistry.has(url))
             .map(async url => {
               try {
                 const resp = await fetch(url)
                 if (resp.ok) {
-                  imageCache.set(url, await resp.arrayBuffer())
-                } else {
-                  imageCache.set(url, null)
+                  const buffer = await resp.arrayBuffer()
+                  const ext = (url.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'png')
+                  imageRegistry.set(url, { buffer, ext, localId: nextImageId++ })
                 }
-              } catch {
-                imageCache.set(url, null)
-              }
+              } catch { /* image fetch failed, skip */ }
             })
         })
       )
@@ -315,70 +316,137 @@ async function exportXlsx() {
     cell.alignment = { vertical: 'middle', horizontal: 'center' }
   })
 
+  // ── 生成图片 GUID（基于 buffer 前 16 字节） ──
+  const imageEntries: Array<{ guid: string; ext: string; buffer: ArrayBuffer; localId: number }> = []
+  const imageGuidMap = new Map<string, string>() // url → GUID
+  for (const [url, info] of imageRegistry) {
+    const hashBytes = new Uint8Array(info.buffer).slice(0, 16)
+    const guid = 'ID_' + Array.from(hashBytes)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase()
+    imageEntries.push({ guid, ext: info.ext, buffer: info.buffer, localId: info.localId })
+    imageGuidMap.set(url, guid)
+  }
+
   // ── 数据行 ──
-  const IMG_SIZE = 160  // px
+  const IMG_SIZE = 160 // px
   for (const [ri, row] of rows.entries()) {
     const excelRow = ws.addRow(
       cols.map(col => {
         const val = row.properties[col.key]
         if (val?.type === 'files') {
-          // files 列写文件名文本（图片用 addImage 嵌入）
           return (val.files ?? []).map(f => f.name).join('\n')
         }
         return getCellText(val)
       })
     )
-    // 设置行高以容纳图片
     if (filesCols.length > 0) {
-      excelRow.height = IMG_SIZE * 0.75  // px → pt 近似
+      excelRow.height = IMG_SIZE * 0.75
     }
 
-    // 嵌入图片
+    // 图片列写入 DISPIMG 公式
     for (const [ci, col] of cols.entries()) {
       const val = row.properties[col.key]
       if (val?.type !== 'files') continue
       const files = val.files ?? []
-      for (const [fi, f] of files.entries()) {
-        const url = f.file?.url ?? f.external?.url ?? ''
-        if (!url) continue
-        const buf = imageCache.get(url)
-        if (!buf) continue
-        // 从 URL 推断扩展名
-        const ext = (url.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'png') as 'jpeg' | 'png' | 'gif'
-        const imageId = wb.addImage({
-          buffer: buf as unknown as Buffer,
-          extension: ext,
-        })
-        // 多张图片水平并排摆放
-        ws.addImage(imageId, {
-          tl: { col: ci, row: ri + 1 },  // +1 因为表头占 row 0
-          ext: { width: IMG_SIZE - 16, height: IMG_SIZE - 16 },
-          editAs: 'oneCell',
-        })
-      }
-      // 设置图片列宽（放宽容纳图片）
-      const fileCount = files.length
-      ws.getColumn(ci + 1).width = Math.max(fileCount * 22, 14)
+      if (files.length === 0) continue
+
+      const url = files[0].file?.url ?? files[0].external?.url ?? ''
+      const guid = imageGuidMap.get(url)
+      if (!guid) continue
+
+      const cell = excelRow.getCell(ci + 1)
+      cell.value = { formula: `_xlfn.DISPIMG("${guid}",1)`, shareType: 'shared' }
+
+      ws.getColumn(ci + 1).width = Math.max(22, 14)
     }
 
-    // 对齐
     excelRow.eachCell(cell => {
       cell.alignment = { vertical: 'middle', wrapText: true }
     })
   }
 
-  // ── 列宽（非图片列按文本长度 ×2） ──
+  // ── 列宽（非图片列） ──
   for (const [ci, col] of cols.entries()) {
-    if (col.type === 'files') continue  // 图片列已在上面设宽
+    if (col.type === 'files') continue
     const dataLengths = rows.map(row => getCellText(row.properties[col.key]).length)
     const maxLen = Math.max(col.name.length, ...dataLengths)
     ws.getColumn(ci + 1).width = Math.min((maxLen + 3) * 2, 80)
   }
 
-  // ── 写入文件 ──
+  // ── 生成 xlsx 并注入 cellimages ──
+  const xlsxBuffer = await wb.xlsx.writeBuffer()
+  const zip = await JSZip.default.loadAsync(xlsxBuffer)
+
+  // 构建 cellimages.xml.rels
+  const relsLines = [
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">',
+  ]
+  for (const entry of imageEntries) {
+    relsLines.push(
+      `  <Relationship Id="rId${entry.localId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${entry.localId}.${entry.ext}"/>`
+    )
+  }
+  relsLines.push('</Relationships>')
+  zip.file('xl/_rels/cellimages.xml.rels', relsLines.join('\n'))
+
+  // 构建 cellimages.xml
+  const cellImagesLines = [
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+    '<etc:cellImages xmlns:etc="http://www.wps.cn/officeDocument/2017/etCustomData"',
+    '  xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"',
+    '  xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"',
+    '  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
+  ]
+  let cNvPrId = 2
+  for (const entry of imageEntries) {
+    cellImagesLines.push(
+      `  <etc:cellImage>`,
+      `    <xdr:pic>`,
+      `      <xdr:nvPicPr>`,
+      `        <xdr:cNvPr id="${cNvPrId}" name="${entry.guid}"/>`,
+      `        <xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr>`,
+      `      </xdr:nvPicPr>`,
+      `      <xdr:blipFill>`,
+      `        <a:blip r:embed="rId${entry.localId}"/>`,
+      `        <a:stretch><a:fillRect/></a:stretch>`,
+      `      </xdr:blipFill>`,
+      `      <xdr:spPr>`,
+      `        <a:xfrm><a:off x="0" y="0"/><a:ext cx="952500" cy="952500"/></a:xfrm>`,
+      `        <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>`,
+      `        <a:noFill/><a:ln w="9525"><a:noFill/></a:ln>`,
+      `      </xdr:spPr>`,
+      `    </xdr:pic>`,
+      `  </etc:cellImage>`
+    )
+    cNvPrId += 2
+  }
+  cellImagesLines.push('</etc:cellImages>')
+  zip.file('xl/cellimages.xml', cellImagesLines.join('\n'))
+
+  // 添加图片文件到 xl/media/
+  for (const entry of imageEntries) {
+    zip.file(`xl/media/image${entry.localId}.${entry.ext}`, entry.buffer, { binary: true })
+  }
+
+  // 更新 [Content_Types].xml：添加图片 MIME 类型
+  const contentTypesXml = await zip.file('[Content_Types].xml')!.async('text')
+  const extraDefaults = new Set<string>()
+  for (const entry of imageEntries) {
+    extraDefaults.add(`<Default Extension="${entry.ext}" ContentType="image/${entry.ext === 'jpg' ? 'jpeg' : entry.ext}"/>`)
+  }
+  const updatedContentTypes = contentTypesXml.replace(
+    '</Types>',
+    [...extraDefaults].join('\n') + '\n</Types>'
+  )
+  zip.file('[Content_Types].xml', updatedContentTypes)
+
+  // ── 下载 ──
+  const finalBuffer = await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' })
   const fileName = `${(database.value.title || 'export').replace(/[\\/:*?"<>|]/g, '_')}.xlsx`
-  const buffer = await wb.xlsx.writeBuffer()
-  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const blob = new Blob([finalBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = fileName
