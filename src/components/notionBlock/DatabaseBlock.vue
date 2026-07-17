@@ -2,6 +2,7 @@
 import { ref, computed, inject, watch, type Ref } from 'vue'
 import type { NotionBlock, NotionDatabase, DatabasePropertyValue, NotionDatabaseRow, DatabasePropertyConfig } from '@/types/notion'
 import { storage } from '@/services/storage'
+import * as XLSX from 'xlsx'
 
 const props = defineProps<{
   block: NotionBlock
@@ -224,6 +225,40 @@ function formatDrawerValue(val: DatabasePropertyValue | undefined): string {
 function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
   return database.value?.properties[key]
 }
+
+/** 导出当前数据为 xlsx 文件并触发下载 */
+function exportXlsx() {
+  if (!database.value || database.value.rows.length === 0) return
+
+  const cols = getColumnNames()
+  const rows = filteredRows.value
+
+  // 构建二维数组：[表头行, ...数据行]
+  const aoa: string[][] = [
+    cols.map(c => c.name),
+    ...rows.map(row =>
+      cols.map(col => getCellText(row.properties[col.key]))
+    ),
+  ]
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa)
+
+  // 列宽自适应（取表头与最长数据值的较大者，上限 40）
+  ws['!cols'] = cols.map((c, ci) => {
+    const maxLen = Math.max(
+      c.name.length,
+      ...rows.map(row => getCellText(row.properties[col.key]).length),
+    )
+    return { wch: Math.min(maxLen + 3, 40) }
+  })
+
+  const wb = XLSX.utils.book_new()
+  const sheetName = (database.value.title || 'Sheet1').slice(0, 31)
+  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+
+  const fileName = `${(database.value.title || 'export').replace(/[\\/:*?"<>|]/g, '_')}.xlsx`
+  XLSX.writeFile(wb, fileName)
+}
 </script>
 
 <template>
@@ -276,6 +311,18 @@ function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
 
         <!-- Filter input -->
         <div class="flex items-center gap-2">
+          <!-- Export xlsx -->
+          <button
+            class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+            style="background-color: var(--c-brand-light); color: var(--c-brand)"
+            title="导出为 Excel 文件"
+            @click.stop="exportXlsx"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>{{ filterResultCount !== database.rows.length && filteredRows.length < database.rows.length ? `导出 (${filteredRows.length})` : '导出' }}</span>
+          </button>
           <div
             v-if="filterResultCount !== database.rows.length"
             class="text-xs shrink-0"
