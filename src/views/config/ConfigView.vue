@@ -91,7 +91,7 @@ const {
             :style="{ backgroundColor: enableDbImport ? 'var(--c-brand)' : 'var(--c-border)' }"
             role="switch"
             :aria-checked="enableDbImport"
-            @click="enableDbImport = !enableDbImport"
+            @click="enableDbImport = !enableDbImport; save()"
           >
             <span
               class="inline-block h-4 w-4 rounded-full bg-white transition-transform"
