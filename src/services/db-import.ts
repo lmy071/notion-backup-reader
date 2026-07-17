@@ -117,75 +117,141 @@ export async function parseExcelFile(file: File): Promise<ParsedExcel> {
     const row: Record<string, string> = {}
     const excelRow = ws.getRow(r)
     headers.forEach((header, ci) => {
-      row[header] = String(excelRow.getCell(ci + 1).value ?? '').trim()
+      const cell = excelRow.getCell(ci + 1)
+      // 公式单元格（type 6）取 formula/result，否则取普通值
+      row[header] = cell.type === 6 && (cell.formula || cell.result)
+        ? String(cell.formula || cell.result)
+        : String(cell.value ?? '').trim()
     })
     rows.push(row)
   }
 
   // ── 提取嵌入图片 ────────────────────────────────────────
-  const images: Map<string, BufferedImage> = new Map()
+  // 1. ExcelJS getImages() — 浮动/嵌入图片
+  const images = extractFloatingImages(ws, wb, headers)
 
-  const sheetImages = ws.getImages() as Array<{
-    imageId: string
-    range?: {
-      tl?: { nativeCol: number; nativeRow: number }
-      br?: { nativeCol: number; nativeRow: number }
-    }
-  }>
-
-  // 建立 imageId → BufferedImage 索引
-  const imageBuffers = new Map<string, BufferedImage>()
-  for (const img of sheetImages) {
-    if (imageBuffers.has(img.imageId)) continue
-
-    const wbImg = wb.getImage(Number(img.imageId)) as {
-      buffer?: Buffer
-      extension?: string
-    } | undefined
-    if (!wbImg?.buffer) continue
-
-    const ext = (wbImg.extension || 'png').toLowerCase()
-    const mimeMap: Record<string, string> = {
-      png: 'image/png',
-      jpg: 'image/jpeg',
-      jpeg: 'image/jpeg',
-      gif: 'image/gif',
-      webp: 'image/webp',
-      bmp: 'image/bmp',
-      svg: 'image/svg+xml',
-    }
-    imageBuffers.set(img.imageId, {
-      buffer: (wbImg.buffer as Buffer).buffer.slice(
-        (wbImg.buffer as Buffer).byteOffset,
-        (wbImg.buffer as Buffer).byteOffset + (wbImg.buffer as Buffer).length,
-      ),
-      extension: ext,
-      mimeType: mimeMap[ext] || 'application/octet-stream',
-    })
-  }
-
-  // 映射图片到单元格：key = "colKey:rowIndex"
-  // rowIndex 从 1 起（Excel 数据首行 = row 1，对应 Excel 第 2 行）
-  for (const img of sheetImages) {
-    const buf = imageBuffers.get(img.imageId)
-    if (!buf) continue
-
-    const tl = img.range?.tl
-    if (!tl || tl.nativeRow === undefined) continue
-
-    // tl.nativeRow 是 0-based Excel 行号（第 1 行为 0）
-    // 数据从 Excel 第 2 行开始，即 nativeRow >= 1
-    const rowIndex = tl.nativeRow
-    if (rowIndex < 1) continue // 跳过表头行
-
-    // 找到最接近的列名
-    if (tl.nativeCol !== undefined && tl.nativeCol < headers.length) {
-      const colKey = headers[tl.nativeCol]
-      images.set(`${colKey}:${rowIndex}`, buf)
-    }
+  // 2. WPS 单元格图片 (DISPIMG 公式) — 手动解析 xlsx zip
+  const cellImages = await extractCellImages(buffer, rows, headers)
+  for (const [key, img] of cellImages) {
+    if (!images.has(key)) images.set(key, img)
   }
 
   return { headers, rows, images }
+}
+
+/**
+ * 提取工作表中的浮动/嵌入图片（ExcelJS getImages）。
+ */
+function extractFloatingImages(
+  ws: any,
+  wb: any,
+  headers: string[],
+): Map<string, BufferedImage> {
+  const result = new Map<string, BufferedImage>()
+
+  try {
+    const sheetImages = ws.getImages() as Array<{
+      imageId: number
+      range?: { tl?: { nativeCol: number; nativeRow: number } }
+    }>
+    if (!sheetImages.length) return result
+
+    for (const img of sheetImages) {
+      const tl = img.range?.tl
+      if (!tl || tl.nativeRow === undefined) continue
+      if (tl.nativeRow < 1) continue // 跳过表头行
+      if (tl.nativeCol < 0 || tl.nativeCol >= headers.length) continue
+
+      const wbImg = wb.getImage(img.imageId) as { buffer?: { buffer: ArrayBuffer; byteOffset: number; length: number }; extension?: string } | undefined
+      if (!wbImg?.buffer) continue
+
+      const ext = (wbImg.extension || 'png').toLowerCase()
+      const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml' }
+
+      result.set(`${headers[tl.nativeCol]}:${tl.nativeRow}`, {
+        buffer: (wbImg.buffer as unknown as ArrayBuffer),
+        extension: ext,
+        mimeType: mimeMap[ext] || 'application/octet-stream',
+      })
+    }
+  } catch { /* 图片提取失败不阻塞导入 */ }
+
+  return result
+}
+
+/**
+ * 提取 WPS 表格"单元格图片"（DISPIMG 公式）。
+ * ExcelJS 不解析这类图片，需要手动解 xlsx zip。
+ */
+async function extractCellImages(
+  buffer: ArrayBuffer,
+  rows: Record<string, string>[],
+  headers: string[],
+): Promise<Map<string, BufferedImage>> {
+  const result = new Map<string, BufferedImage>()
+
+  try {
+    const JSZip = await import('jszip')
+    const zip = await JSZip.default.loadAsync(buffer)
+
+    // 检查是否有单元格图片定义（WPS 表格专有）
+    const cellImagesFile = zip.file('xl/cellimages.xml')
+    if (!cellImagesFile) return result
+
+    const cellImagesXml = await cellImagesFile.async('text')
+    const relsFile = zip.file('xl/_rels/cellimages.xml.rels')
+    const relsXml = relsFile ? await relsFile.async('text') : ''
+
+    // 解析 imageId → rId
+    const idToRId: Record<string, string> = {}
+    const idRegex = /cNvPr[^>]*name="(ID_[^"]+)"[^>]*\/>\s*<[^>]*cNvPicPr[\s\S]*?a:blip[^>]*r:embed="(rId\d+)"/g
+    let m: RegExpExecArray | null
+    while ((m = idRegex.exec(cellImagesXml)) !== null) {
+      idToRId[m[1]] = m[2]
+    }
+
+    // 解析 rId → media 路径
+    const rIdToPath: Record<string, string> = {}
+    const relRegex = /Relationship[^>]*Id="(rId\d+)"[^>]*Target="([^"]+)"/g
+    while ((m = relRegex.exec(relsXml)) !== null) {
+      rIdToPath[m[1]] = m[2]
+    }
+
+    // 遍历行，查找 DISPIMG 公式（兼容 _xlfn.DISPIMG 和 =DISPIMG 两种格式）
+    const dispImgRe = /(?:=|_xlfn\.)DISPIMG\("?(ID_[A-F0-9]+)"?/
+    for (let ri = 0; ri < rows.length; ri++) {
+      const row = rows[ri]
+      const rowIndex = ri + 1 // 1-based
+
+      for (const [colKey, cellValue] of Object.entries(row)) {
+        const match = dispImgRe.exec(cellValue)
+        if (!match) continue
+
+        const imageId = match[1]
+        const rId = idToRId[imageId]
+        if (!rId) continue
+
+        const mediaPath = rIdToPath[rId]
+        if (!mediaPath) continue
+
+        // 从 zip 中读取图片数据
+        const mediaFile = zip.file(`xl/${mediaPath}`)
+        if (!mediaFile) continue
+
+        const imageBuffer = await mediaFile.async('arraybuffer')
+        const ext = mediaPath.split('.').pop()?.toLowerCase() || 'png'
+        const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' }
+
+        result.set(`${colKey}:${rowIndex}`, {
+          buffer: imageBuffer,
+          extension: ext,
+          mimeType: mimeMap[ext] || 'application/octet-stream',
+        })
+      }
+    }
+  } catch { /* cell image 提取失败不阻塞导入 */ }
+
+  return result
 }
 
 // ── Schema 验证 ────────────────────────────────────────────
