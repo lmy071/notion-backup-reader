@@ -91,7 +91,7 @@ function isSystemProperty(key: string): boolean {
       :max-width="500"
       @update:width="sidebarWidth = $event"
     >
-      <div class="h-full flex flex-col" style="border-right: 1px solid var(--c-border)">
+      <div class="h-full flex flex-col glass" style="border-right: none; border-radius: 0;">
         <div class="px-4 py-3" style="border-bottom: 1px solid var(--c-border)">
           <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--c-text-secondary)">
             目录

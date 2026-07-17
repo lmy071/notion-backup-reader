@@ -97,6 +97,23 @@
   /* ── 字号 ── */
   --fs-xs: 12px; --fs-sm: 14px; --fs-base: 16px;
   --fs-lg: 18px; --fs-xl: 20px; --fs-2xl: 24px; --fs-3xl: 30px;
+
+  /* ── 液态玻璃 ── */
+  --glass-bg: rgba(255,255,255,0.55);
+  --glass-bg-hover: rgba(255,255,255,0.72);
+  --glass-bg-active: rgba(255,255,255,0.88);
+  --glass-border: rgba(255,255,255,0.28);
+  --glass-border-hover: rgba(255,255,255,0.45);
+  --glass-shadow: 0 8px 32px rgba(0,0,0,0.06), 0 1px 0 rgba(255,255,255,0.45) inset;
+  --glass-shadow-hover: 0 12px 40px rgba(0,0,0,0.10), 0 1px 0 rgba(255,255,255,0.55) inset;
+  --glass-blur: 16px;
+  --glass-radius: 16px;
+
+  /* ── 滚动条 ── */
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: rgba(0,0,0,0.12);
+  --scrollbar-thumb-hover: rgba(0,0,0,0.22);
+  --scrollbar-size: 6px;
 }
 
 /* ====== 暗色主题 ====== */
@@ -181,4 +198,17 @@ html.dark,
   --c-card-border:          #2d3044;
   --c-shadow:               0 1px 3px rgba(0,0,0,0.3);
   --c-shadow-md:            0 4px 6px rgba(0,0,0,0.4);
+
+  /* 液态玻璃 — 暗色 */
+  --glass-bg: rgba(22,24,34,0.55);
+  --glass-bg-hover: rgba(22,24,34,0.75);
+  --glass-bg-active: rgba(22,24,34,0.90);
+  --glass-border: rgba(255,255,255,0.08);
+  --glass-border-hover: rgba(255,255,255,0.16);
+  --glass-shadow: 0 8px 32px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.06) inset;
+  --glass-shadow-hover: 0 12px 40px rgba(0,0,0,0.50), 0 1px 0 rgba(255,255,255,0.10) inset;
+
+  /* 滚动条 — 暗色 */
+  --scrollbar-thumb: rgba(255,255,255,0.10);
+  --scrollbar-thumb-hover: rgba(255,255,255,0.20);
 }

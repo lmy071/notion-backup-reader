@@ -14,8 +14,8 @@ import { RouterView } from 'vue-router'
       }"
     />
     <nav
-      class="h-48px flex items-center px-6 gap-6 shrink-0 relative z-1"
-      style="background-color: var(--c-bg-secondary); border-bottom: 1px solid var(--c-border);"
+      class="h-48px flex items-center px-6 gap-6 shrink-0 relative z-1 glass"
+      style="border-radius: 0; border-left: none; border-right: none; border-top: none;"
     >
       <span
         class="font-bold"

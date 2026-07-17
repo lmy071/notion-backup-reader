@@ -28,8 +28,7 @@ function formatDate(iso: string): string {
 
 <template>
   <article
-    class="cursor-pointer overflow-hidden transition-shadow hover:shadow-md"
-    style="background-color: var(--c-card-bg); border: 1px solid var(--c-card-border); border-radius: 8px"
+    class="glass cursor-pointer overflow-hidden"
     @click="emit('navigate', pageId)"
   >
     <!-- 封面图 -->

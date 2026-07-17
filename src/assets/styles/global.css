@@ -25,3 +25,54 @@ body {
   background-attachment: fixed;
   background-repeat: no-repeat;
 }
+
+/* ══════════ 滚动条美化 ══════════ */
+::-webkit-scrollbar {
+  width: var(--scrollbar-size, 6px);
+  height: var(--scrollbar-size, 6px);
+}
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track, transparent);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb, rgba(0,0,0,0.12));
+  border-radius: 3px;
+  transition: background 0.2s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, rgba(0,0,0,0.22));
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, rgba(0,0,0,0.12)) var(--scrollbar-track, transparent);
+}
+
+/* ══════════ 液态玻璃样式 ══════════ */
+.glass {
+  background: var(--glass-bg, rgba(255,255,255,0.55));
+  backdrop-filter: blur(var(--glass-blur, 16px)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(1.4);
+  border: 1px solid var(--glass-border, rgba(255,255,255,0.28));
+  border-radius: var(--glass-radius, 16px);
+  box-shadow: var(--glass-shadow, 0 8px 32px rgba(0,0,0,0.06), 0 1px 0 rgba(255,255,255,0.45) inset);
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.glass:hover {
+  background: var(--glass-bg-hover, rgba(255,255,255,0.72));
+  border-color: var(--glass-border-hover, rgba(255,255,255,0.45));
+  box-shadow: var(--glass-shadow-hover, 0 12px 40px rgba(0,0,0,0.10), 0 1px 0 rgba(255,255,255,0.55) inset);
+}
+.glass-solid {
+  background: var(--glass-bg-active, rgba(255,255,255,0.88));
+  backdrop-filter: blur(var(--glass-blur, 16px)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(1.4);
+  border: 1px solid var(--glass-border-hover, rgba(255,255,255,0.45));
+  border-radius: var(--glass-radius, 16px);
+  box-shadow: var(--glass-shadow-hover);
+}
