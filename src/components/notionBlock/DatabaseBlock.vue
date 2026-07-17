@@ -397,6 +397,10 @@ const importEnabled = computed(() => {
   return configStore.config.enableDbImport && !!props.block.id
 })
 
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 /** 触发文件选择 */
 function triggerImport() {
   fileInput.value?.click()
@@ -500,6 +504,9 @@ async function handleImport(file: File) {
         const img = images.get(key)
         if (!img) continue
 
+        // 上传前间隔 1s
+        await delay(1000)
+
         const url = await uploadImageForImport(img)
         if (url) {
           imageUrls[col] = [url]
@@ -510,6 +517,8 @@ async function handleImport(file: File) {
             column: col,
             time: Date.now(),
           })
+          // 成功后间隔 1s 再继续下一张
+          await delay(1000)
         } else {
           importLogs.value.push({
             level: 'warn',
