@@ -60,77 +60,33 @@ export function useSyncLogic() {
     logMessages.value.push(msg)
   }
 
-  // ══════════ 打字机动画 ══════════
-  const TYPING_SPEED = 30 // 每个字符间隔（ms）
+  // ══════════ 逐字日志渲染 ══════════
+  // 服务端已逐字 SSE + charDelay 控制速度，前端只需简单追加
 
-  /** 待动画的行队列 */
-  let lineQueue: string[] = []
-  /** 当前正在动画的行已显示字符数 */
-  let typedCount = 0
-  let timerId: ReturnType<typeof setTimeout> | null = null
-
-  /** 清空打字机状态（同步开始/取消时） */
-  function resetTypewriter() {
-    if (timerId) { clearTimeout(timerId); timerId = null }
-    lineQueue = []
-    typedCount = 0
-  }
-
-  /** 打字动画 — 每次 tick 追加一个字符到当前行 */
-  function typeTick() {
-    if (lineQueue.length === 0) {
-      timerId = null
+  function appendChar(ch: string) {
+    const msgs = logMessages.value
+    if (ch === '\n') {
+      // 行结束：确认当前行
+      // （服务端发送 \n 时上一行内容已完整，只需确保空行不重复追加）
+      const last = msgs[msgs.length - 1]
+      if (last === undefined || last === '') {
+        // \n 前没有正在构建的行，推入空行
+        if (msgs.length === 0 || msgs[msgs.length - 1] !== '') {
+          logMessages.value = [...msgs, '']
+        }
+      }
+      // 有内容的 last 行已经完整，\n 后的下一个字符会开启新行
       return
     }
-
-    const fullLine = lineQueue[0]
-    typedCount++
-
-    // 更新日志：最后一行是正在构建的打字行
-    const arr = [...logMessages.value]
-    arr[arr.length - 1] = fullLine.slice(0, typedCount)
+    if (msgs.length === 0 || msgs[msgs.length - 1] === undefined) {
+      // 第一行
+      logMessages.value = [ch]
+      return
+    }
+    // 追加到当前行末尾
+    const arr = [...msgs]
+    arr[arr.length - 1] = (arr[arr.length - 1] || '') + ch
     logMessages.value = arr
-
-    if (typedCount >= fullLine.length) {
-      // 当前行动画完成 → 确认，取下一行
-      lineQueue.shift()
-      typedCount = 0
-      if (lineQueue.length > 0) {
-        logMessages.value.push('') // 为下一行预留空位
-        timerId = setTimeout(typeTick, TYPING_SPEED * 4) // 行间略停顿
-      } else {
-        timerId = null
-      }
-    } else {
-      timerId = setTimeout(typeTick, TYPING_SPEED)
-    }
-  }
-
-  /** 推入一行到动画队列，如果空闲则启动动画 */
-  function enqueueTypingLine(line: string) {
-    const wasIdle = lineQueue.length === 0 && typedCount === 0
-    lineQueue.push(line)
-    if (wasIdle) {
-      // 推入第一个占位空行（将被动画填充）
-      logMessages.value.push('')
-      typeTick()
-    }
-  }
-
-  /** 立即刷完队列中所有剩余行（同步结束时调用） */
-  function flushTypewriter() {
-    if (timerId) { clearTimeout(timerId); timerId = null }
-    // 将当前未完成的打字行补齐
-    if (lineQueue.length > 0) {
-      const arr = [...logMessages.value]
-      arr[arr.length - 1] = lineQueue[0]
-      // 剩余行直接追加
-      for (let i = 1; i < lineQueue.length; i++) {
-        arr.push(lineQueue[i])
-      }
-      logMessages.value = arr
-    }
-    resetTypewriter()
   }
 
   // ══════════ 同步逻辑 ══════════
@@ -148,7 +104,6 @@ export function useSyncLogic() {
     overallProgress.value = 0
     logMessages.value = []
     taskMap.value = new Map()
-    resetTypewriter()
 
     const { config } = useConfigStore()
 
@@ -157,15 +112,28 @@ export function useSyncLogic() {
         startSyncSync(
           { pageIds: allIds, apiKey: config.apiKey },
           {
-            onLog(line: string) {
-              enqueueTypingLine(line)
+            onLog(chunk: string) {
+              if (chunk === '\n') {
+                appendChar(chunk)
+              } else {
+                appendChar(chunk)
+              }
+            },
+            onTask(task) {
+              const map = new Map(taskMap.value)
+              map.set(task.pageId, task)
+              taskMap.value = map
+
+              let sum = 0
+              for (const t of map.values()) sum += t.progress
+              overallProgress.value = map.size > 0
+                ? Math.round(sum / map.size)
+                : 0
             },
             onDone() {
-              flushTypewriter()
               resolve()
             },
             onError(msg) {
-              flushTypewriter()
               logMessages.value.push(`💥 ${msg}`)
               reject(new Error(msg))
             },
@@ -175,7 +143,6 @@ export function useSyncLogic() {
     } catch (e) {
       // error already logged via onError
     } finally {
-      flushTypewriter()
       isSyncing.value = false
       isPaused.value = false
     }
@@ -190,7 +157,6 @@ export function useSyncLogic() {
   }
 
   function cancelSync() {
-    resetTypewriter()
     isSyncing.value = false
     isPaused.value = false
   }

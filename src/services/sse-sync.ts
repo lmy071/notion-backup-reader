@@ -3,7 +3,7 @@
  *
  * 用法:
  *   const ctrl = startSyncSync({ pageIds: ['id1','id2'], apiKey:'...' }, {
- *     onLog(line)    // 整行日志
+ *     onLog(chunk)   // 逐字日志（服务端逐字 SSE 推送）
  *     onTask(task)   // 单任务状态更新 {pageId,title,status,progress}
  *     onDone()       // 完成
  *     onError(msg)   // 错误
@@ -20,7 +20,7 @@ export interface SyncTaskStatus {
 }
 
 export interface SyncCallbacks {
-  onLog?: (line: string) => void
+  onLog?: (chunk: string) => void
   onTask?: (task: SyncTaskStatus) => void
   onDone?: () => void
   onError?: (message: string) => void
@@ -98,7 +98,7 @@ function processEvent(type: string, data: string, cbs: SyncCallbacks): void {
 
     switch (type) {
       case 'log':
-        if (payload.line != null) cbs.onLog?.(String(payload.line))
+        if (payload.chunk != null) cbs.onLog?.(String(payload.chunk))
         break
       case 'task':
         cbs.onTask?.(payload as SyncTaskStatus)

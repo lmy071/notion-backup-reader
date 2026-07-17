@@ -888,9 +888,17 @@ async function buildBacklinks(
 // ═══════════════════════════════════════════════════════════════════
 
 /** 逐字发送日志到 SSE 流 */
+const CHAR_DELAY = 30 // 逐字间隔（ms），匹配前端视觉刷新
+
 async function snkLog(ctrl: ReadableStreamDefaultController, message: string): Promise<void> {
-  ctrl.enqueue(new TextEncoder().encode(sseEvent('log', { line: message })))
-  // 让出宏任务：允许 Node.js HTTP 层将 enqueue 的数据 flush 到 TCP socket
+  const encoder = new TextEncoder()
+  for (const char of message) {
+    ctrl.enqueue(encoder.encode(sseEvent('log', { chunk: char })))
+    // 每条 SSE 帧后让出宏任务：确保 Node.js HTTP 层 flush 到 TCP
+    await new Promise<void>(r => setTimeout(r, CHAR_DELAY))
+  }
+  // 行结束信号
+  ctrl.enqueue(encoder.encode(sseEvent('log', { chunk: '\n' })))
   await new Promise<void>(r => setTimeout(r, 0))
 }
 
