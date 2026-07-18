@@ -17,7 +17,7 @@ import type { NotionDatabase, DatabasePropertyConfig } from '@/types/notion'
 
 // ── 日志类型 ───────────────────────────────────────────────
 
-export type LogLevel = 'info' | 'warn' | 'error' | 'success' | 'skip'
+export type LogLevel = 'info' | 'warn' | 'error' | 'success' | 'skip' | 'update'
 
 export interface ImportLog {
   level: LogLevel
@@ -335,14 +335,25 @@ export function validateRows(
       continue
     }
 
-    // 检查是否已存在（增量跳过）
+    // 检查是否已存在（增量跳过 or 更新）
     if (existingTitles.has(titleValue)) {
-      logs.push({
-        level: 'skip',
-        message: `"${titleValue}" 已存在，跳过`,
-        row: rowNum,
-        time: Date.now(),
-      })
+      // 检查"更新"列是否有值，有值则标记为 update，否则跳过
+      const updateCol = row['更新']
+      if (updateCol && String(updateCol).trim()) {
+        logs.push({
+          level: 'update',
+          message: `"${titleValue}" 标记为更新`,
+          row: rowNum,
+          time: Date.now(),
+        })
+      } else {
+        logs.push({
+          level: 'skip',
+          message: `"${titleValue}" 已存在，跳过`,
+          row: rowNum,
+          time: Date.now(),
+        })
+      }
       continue
     }
 
@@ -424,6 +435,8 @@ export function buildNotionProperties(
   const properties: Record<string, unknown> = {}
 
   for (const [col, value] of Object.entries(row)) {
+    // 跳过"更新"标记列（仅用于标记需要更新的行，不写入 Notion）
+    if (col === '更新') continue
     const prop = schema.properties[col]
     if (!prop || !IMPORTABLE_TYPES.has(prop.type)) continue
 
@@ -550,6 +563,37 @@ export async function createDatabasePage(
         'X-Notion-Token': apiKey,
       },
       body: JSON.stringify(body),
+    })
+
+    if (!res.ok) {
+      const err = await res.text()
+      return { ok: false, error: `${res.status}: ${err}` }
+    }
+
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * 更新已存在的 Notion 数据库页面（PATCH /v1/pages/{pageId}）。
+ * 通过中间件代理绕 CORS。
+ * 请求体: { pageId, properties }
+ */
+export async function updateDatabasePage(
+  pageId: string,
+  properties: Record<string, unknown>,
+  apiKey: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/db-import/update-page', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Notion-Token': apiKey,
+      },
+      body: JSON.stringify({ pageId, properties }),
     })
 
     if (!res.ok) {

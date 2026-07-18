@@ -10,6 +10,7 @@ import {
   validateRows,
   buildNotionProperties,
   createDatabasePage,
+  updateDatabasePage,
   uploadImageForImport,
   type ImportLog,
 } from '@/services/db-import'
@@ -572,26 +573,45 @@ async function handleImport(file: File) {
     // 6. 统计
     const errors = importLogs.value.filter(l => l.level === 'error' && l.row)
     const skips = importLogs.value.filter(l => l.level === 'skip')
-    const toImport = rows.filter((_, i) => {
+    const updates = importLogs.value.filter(l => l.level === 'update')
+    const toProcess = rows.filter((_, i) => {
       const rn = i + 1
       return !errors.some(e => e.row === rn) && !skips.some(s => s.row === rn)
+    })
+    const toCreate = toProcess.filter((_, i) => {
+      const rn = rows.indexOf(toProcess[i]) + 1
+      return !updates.some(u => u.row === rn)
+    })
+    const toUpdate = toProcess.filter((_, i) => {
+      const rn = rows.indexOf(toProcess[i]) + 1
+      return updates.some(u => u.row === rn)
     })
 
     importLogs.value.push({
       level: 'info',
-      message: `校验完成：${toImport.length} 条待导入, ${skips.length} 条已存在跳过, ${errors.length} 条有错误`,
+      message: `校验完成：${toCreate.length} 条待新增, ${toUpdate.length} 条待更新, ${skips.length} 条跳过, ${errors.length} 条有错误`,
       time: Date.now(),
     })
 
-    if (toImport.length === 0) {
-      importLogs.value.push({ level: 'warn', message: '没有需要导入的数据', time: Date.now() })
+    if (toProcess.length === 0) {
+      importLogs.value.push({ level: 'warn', message: '没有需要处理的数据', time: Date.now() })
       importing.value = false
       return
     }
 
-    // 7. 逐行导入
-    importProgress.value = { done: 0, total: toImport.length }
-    importLogs.value.push({ level: 'info', message: `开始导入 ${toImport.length} 条数据...`, time: Date.now() })
+    // 7. 逐行处理（新增 + 更新）
+    importProgress.value = { done: 0, total: toProcess.length }
+    importLogs.value.push({ level: 'info', message: `开始处理 ${toProcess.length} 条数据（新增 ${toCreate.length}, 更新 ${toUpdate.length}）...`, time: Date.now() })
+
+    // 构建 title → pageId 映射（用于更新时查找已有页面 ID）
+    const titleToPageId = new Map<string, string>()
+    for (const dbRow of database.value.rows) {
+      const val = dbRow.properties[schema.titleKey]
+      if (val?.type === 'title') {
+        const t = val.title?.map(t => t.plain_text).join('') ?? ''
+        if (t) titleToPageId.set(t, dbRow.id)
+      }
+    }
 
     for (let i = 0; i < rows.length; i++) {
       const rn = i + 1
@@ -600,6 +620,7 @@ async function handleImport(file: File) {
 
       const row = rows[i]
       const titleValue = row[schema.titleKey]
+      const isUpdate = updates.some(u => u.row === rn)
 
       // 7a. 上传 files 列的图片到 PicList 图床（带重试）
       const imageUrls: Record<string, string[]> = {}
@@ -663,25 +684,57 @@ async function handleImport(file: File) {
         return
       }
 
-      // 7b. 构建 Notion properties
+      // 7b. 构建 Notion properties（"更新"列自动跳过）
       const properties = buildNotionProperties(row, schema, imageUrls)
 
-      const res = await createDatabasePage(props.block.id, properties, apiKey)
-
-      if (res.ok) {
-        importLogs.value.push({
-          level: 'success',
-          message: `"${titleValue}" 导入成功`,
-          row: rn,
-          time: Date.now(),
-        })
+      let res: { ok: boolean; error?: string }
+      if (isUpdate) {
+        // 更新已有页面
+        const pageId = titleToPageId.get(titleValue)
+        if (!pageId) {
+          importLogs.value.push({
+            level: 'error',
+            message: `"${titleValue}" 未找到已有页面 ID，跳过更新`,
+            row: rn,
+            time: Date.now(),
+          })
+          importProgress.value.done++
+          continue
+        }
+        res = await updateDatabasePage(pageId, properties, apiKey)
+        if (res.ok) {
+          importLogs.value.push({
+            level: 'success',
+            message: `"${titleValue}" 更新成功`,
+            row: rn,
+            time: Date.now(),
+          })
+        } else {
+          importLogs.value.push({
+            level: 'error',
+            message: `"${titleValue}" 更新失败: ${res.error}`,
+            row: rn,
+            time: Date.now(),
+          })
+        }
       } else {
-        importLogs.value.push({
-          level: 'error',
-          message: `"${titleValue}" 导入失败: ${res.error}`,
-          row: rn,
-          time: Date.now(),
-        })
+        // 新增页面
+        res = await createDatabasePage(props.block.id, properties, apiKey)
+        if (res.ok) {
+          importLogs.value.push({
+            level: 'success',
+            message: `"${titleValue}" 导入成功`,
+            row: rn,
+            time: Date.now(),
+          })
+        } else {
+          importLogs.value.push({
+            level: 'error',
+            message: `"${titleValue}" 导入失败: ${res.error}`,
+            row: rn,
+            time: Date.now(),
+          })
+        }
       }
 
       importProgress.value.done++
@@ -694,7 +747,7 @@ async function handleImport(file: File) {
 
     importLogs.value.push({
       level: 'info',
-      message: `导入完成！成功 ${importLogs.value.filter(l => l.level === 'success').length} 条`,
+      message: `处理完成！成功 ${importLogs.value.filter(l => l.level === 'success').length} 条`,
       time: Date.now(),
     })
   } catch (e) {

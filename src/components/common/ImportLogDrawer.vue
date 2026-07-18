@@ -18,6 +18,7 @@ const levelConfig: Record<LogLevel, { label: string; color: string; bg: string }
   error:   { label: 'ERROR', color: 'var(--c-danger)',    bg: 'var(--c-bg-secondary)' },
   success: { label: 'OK',    color: 'var(--c-success)',   bg: 'var(--c-bg-secondary)' },
   skip:    { label: 'SKIP',  color: 'var(--c-text-tertiary)', bg: 'var(--c-bg-secondary)' },
+  update:  { label: 'UPD',   color: 'var(--c-warning)',   bg: 'var(--c-bg-secondary)' },
 }
 
 function formatTime(ms: number): string {
@@ -118,6 +119,7 @@ function formatTime(ms: number): string {
             <span style="color: var(--c-warning)">⚠️ {{ logs.filter(l => l.level === 'warn').length }}</span>
             <span style="color: var(--c-danger)">❌ {{ logs.filter(l => l.level === 'error').length }}</span>
             <span style="color: var(--c-text-tertiary)">⏭️ {{ logs.filter(l => l.level === 'skip').length }}</span>
+            <span style="color: var(--c-warning)">🔄 {{ logs.filter(l => l.level === 'update').length }}</span>
           </div>
         </div>
       </Transition>
