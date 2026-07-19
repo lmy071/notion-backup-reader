@@ -1,36 +1,25 @@
-import type { Plugin, ViteDevServer } from 'vite'
+﻿import type { Plugin, ViteDevServer } from 'vite'
 import { readFile, writeFile, mkdir, readdir, stat, unlink, appendFile } from 'node:fs/promises'
 import { join, dirname, extname } from 'node:path'
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 
-// ── 常量定义 ──────────────────────────────────────────────────────
+// 鈹€鈹€ 甯搁噺瀹氫箟 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-/** JSON 数据根目录（备份存储�?*/
+/** JSON 鏁版嵁鏍圭洰褰曪紙澶囦唤瀛樺偍锛?*/
 const JSON_DIR = join(process.cwd(), 'json')
-/** 图片存储目录 */
+/** 鍥剧墖瀛樺偍鐩綍 */
 const IMAGES_DIR = join(process.cwd(), 'images')
-/** 日志文件目录 */
+/** 鏃ュ織鏂囦欢鐩綍 */
 const LOG_DIR = join(process.cwd(), 'log')
-/** 每个根页面最多保留的版本�?*/
+/** 姣忎釜鏍归〉闈㈡渶澶氫繚鐣欑殑鐗堟湰鏁?*/
 const MAX_VERSIONS = 10
-/** 最多保留的日志文件�?*/
+/** 鏈€澶氫繚鐣欑殑鏃ュ織鏂囦欢鏁?*/
 const MAX_LOG_FILES = 30
 
-/**
- * �?Notion page ID 统一�?UUID 带破折号格式（与磁盘目录结构一致）�?
- * 输入: "39f20a96745980a2b492c1f55148c845" �?"39f20a96-7459-80a2-b492-c1f55148c845"
- * 输出: "39f20a96-7459-80a2-b492-c1f55148c845"
- */
-function normalizePageId(id: string): string {
-  const hex = id.replace(/-/g, '')
-  if (hex.length !== 32) return id // 非标�?ID，原样返�?
-  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`
-}
+// 鈹€鈹€ JSON 鏂囦欢鍔╂墜 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-// ── JSON 文件助手 ────────────────────────────────────────────────
-
-/** 返回 JSON 格式�?HTTP 响应 */
+/** 杩斿洖 JSON 鏍煎紡鐨?HTTP 鍝嶅簲 */
 function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -38,18 +27,18 @@ function jsonResponse(data: unknown, status = 200): Response {
   })
 }
 
-/** 返回错误响应 */
+/** 杩斿洖閿欒鍝嶅簲 */
 function errorResponse(message: string, status = 500): Response {
   return jsonResponse({ error: message }, status)
 }
 
-/** 读取并解�?JSON 文件 */
+/** 璇诲彇骞惰В鏋?JSON 鏂囦欢 */
 async function readJson(filePath: string): Promise<unknown> {
   const content = await readFile(filePath, 'utf-8')
   return JSON.parse(content)
 }
 
-/** 安全读取 JSON 文件（不存在或解析失败返�?null�?*/
+/** 瀹夊叏璇诲彇 JSON 鏂囦欢锛堜笉瀛樺湪鎴栬В鏋愬け璐ヨ繑鍥?null锛?*/
 async function readJsonSafe(filePath: string): Promise<unknown> {
   try {
     return await readJson(filePath)
@@ -58,28 +47,13 @@ async function readJsonSafe(filePath: string): Promise<unknown> {
   }
 }
 
-/** 将原�?Notion API 数据�?JSON 转为前端 NotionDatabase 格式 */
-function normalizeDatabase(raw: unknown): Record<string, unknown> {
-  const r = raw as Record<string, unknown>
-  const schema = (r.schema || {}) as Record<string, unknown>
-  return {
-    id: r.databaseId ?? r.id ?? '',
-    title: (r.title as string) ?? '',
-    properties: schema.properties ?? {},
-    rows: (Array.isArray(r.results) ? r.results.map((row: Record<string, unknown>) => ({
-      id: row.id ?? '',
-      properties: row.properties ?? {},
-    })) : []),
-  }
-}
-
-/** 写入 JSON 文件（自动创建父目录�?*/
+/** 鍐欏叆 JSON 鏂囦欢锛堣嚜鍔ㄥ垱寤虹埗鐩綍锛?*/
 async function writeJson(filePath: string, data: unknown): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true })
   await writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8')
 }
 
-/** 列出目录下的子目录名 */
+/** 鍒楀嚭鐩綍涓嬬殑瀛愮洰褰曞悕 */
 async function listDirs(dirPath: string): Promise<string[]> {
   try {
     const entries = await readdir(dirPath, { withFileTypes: true })
@@ -89,9 +63,9 @@ async function listDirs(dirPath: string): Promise<string[]> {
   }
 }
 
-// ── 日志助手 ──────────────────────────────────────────────────────
+// 鈹€鈹€ 鏃ュ織鍔╂墜 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-/** 向日志文件追加一�?*/
+/** 鍚戞棩蹇楁枃浠惰拷鍔犱竴琛?*/
 async function appendToLog(fileName: string, line: string): Promise<void> {
   await mkdir(LOG_DIR, { recursive: true })
   const filePath = join(LOG_DIR, fileName)
@@ -99,17 +73,14 @@ async function appendToLog(fileName: string, line: string): Promise<void> {
 }
 
 /**
- * 读取日志�?
- * - 指定 date 时读取对应日期的日志文件
- * - 未指�?date 时读取最�?10 个日志文�?
- */
+ * 璇诲彇鏃ュ織銆? * - 鎸囧畾 date 鏃惰鍙栧搴旀棩鏈熺殑鏃ュ織鏂囦欢
+ * - 鏈寚瀹?date 鏃惰鍙栨渶杩?10 涓棩蹇楁枃浠? */
 async function readLogs(
   date?: string,
   _level?: string,
   _pageId?: string,
 ): Promise<unknown[]> {
-  // 按日期读取单个日志文�?
-  if (date) {
+  // 鎸夋棩鏈熻鍙栧崟涓棩蹇楁枃浠?  if (date) {
     const filePath = join(LOG_DIR, `${date}.log`)
     try {
       const content = await readFile(filePath, 'utf-8')
@@ -122,8 +93,7 @@ async function readLogs(
     }
   }
 
-  // 读取最�?10 个日志文�?
-  let files: string[]
+  // 璇诲彇鏈€杩?10 涓棩蹇楁枃浠?  let files: string[]
   try {
     files = await readdir(LOG_DIR)
   } catch {
@@ -141,16 +111,13 @@ async function readLogs(
         .map((line) => JSON.parse(line))
       results.push(...entries)
     } catch {
-      // 跳过损坏的日志文�?
-    }
+      // 璺宠繃鎹熷潖鐨勬棩蹇楁枃浠?    }
   }
   return results
 }
 
 /**
- * 清理过期的日志文件�?
- * 按文件名排序（YYYY-MM-DD.log），删除超出 MAX_LOG_FILES 的最旧文件�?
- */
+ * 娓呯悊杩囨湡鐨勬棩蹇楁枃浠躲€? * 鎸夋枃浠跺悕鎺掑簭锛圷YYY-MM-DD.log锛夛紝鍒犻櫎瓒呭嚭 MAX_LOG_FILES 鐨勬渶鏃ф枃浠躲€? */
 async function cleanupLogs(): Promise<void> {
   let files: string[]
   try {
@@ -166,24 +133,24 @@ async function cleanupLogs(): Promise<void> {
   }
 }
 
-// ── 图片下载与替�?──────────────────────────────────────────────────
+// 鈹€鈹€ 鍥剧墖涓嬭浇涓庢浛鎹?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-/** Notion S3 文件 URL */
+/** Notion S3 鏂囦欢 URL */
 const NOTION_S3_RE = /https:\/\/prod-files-secure\.s3[^"'\s]+/g
 
-/** Gitee raw 图片 URL */
+/** Gitee raw 鍥剧墖 URL */
 const GITEE_IMAGE_RE =
   /https:\/\/gitee\.com\/[^"'\s]+\/[^"'\s]+\.(?:png|jpe?g|gif|webp|svg|bmp|ico)(?:\?[^"'\s]*)?/g
 
-/** 需要下载替换的外部文件 URL 模式列表 */
+/** 闇€瑕佷笅杞芥浛鎹㈢殑澶栭儴鏂囦欢 URL 妯″紡鍒楄〃 */
 const EXTERNAL_FILE_URL_PATTERNS: RegExp[] = [NOTION_S3_RE, GITEE_IMAGE_RE]
 
-/** 检查字符串是否匹配任一外部文件 URL 模式 */
+/** 妫€鏌ュ瓧绗︿覆鏄惁鍖归厤浠讳竴澶栭儴鏂囦欢 URL 妯″紡 */
 function matchesExternalUrl(s: string): boolean {
   return EXTERNAL_FILE_URL_PATTERNS.some(re => re.test(s))
 }
 
-/** 提取字符串中所有匹配的外部文件 URL（去重） */
+/** 鎻愬彇瀛楃涓蹭腑鎵€鏈夊尮閰嶇殑澶栭儴鏂囦欢 URL锛堝幓閲嶏級 */
 function extractExternalUrls(s: string): string[] {
   const seen = new Set<string>()
   const urls: string[] = []
@@ -200,9 +167,7 @@ function extractExternalUrls(s: string): string[] {
 }
 
 /**
- * 深度遍历 JSON，将所有外部图�?URL 下载到本�?images/{rootPageId}/ 目录�?
- * 并替换为本地路径 `/api/images/{rootPageId}/{hash}.{ext}`�?
- */
+ * 娣卞害閬嶅巻 JSON锛屽皢鎵€鏈夊閮ㄥ浘鐗?URL 涓嬭浇鍒版湰鍦?images/{rootPageId}/ 鐩綍锛? * 骞舵浛鎹负鏈湴璺緞 `/api/images/{rootPageId}/{hash}.{ext}`銆? */
 async function downloadAndReplaceImages(data: unknown, rootPageId: string): Promise<void> {
   if (!data || typeof data !== 'object') return
 
@@ -223,8 +188,7 @@ async function downloadAndReplaceImages(data: unknown, rootPageId: string): Prom
 }
 
 /**
- * 替换字符串中的所有外部文�?URL 为本地路径�?
- */
+ * 鏇挎崲瀛楃涓蹭腑鐨勬墍鏈夊閮ㄦ枃浠?URL 涓烘湰鍦拌矾寰勩€? */
 async function replaceUrlsInString(str: string, rootPageId: string): Promise<string> {
   const urls = extractExternalUrls(str)
   let result = str
@@ -235,7 +199,7 @@ async function replaceUrlsInString(str: string, rootPageId: string): Promise<str
   return result
 }
 
-/** 下载单张图片到本�?images/{rootPageId}/，返回本地路径。失败时保留�?URL�?*/
+/** 涓嬭浇鍗曞紶鍥剧墖鍒版湰鍦?images/{rootPageId}/锛岃繑鍥炴湰鍦拌矾寰勩€傚け璐ユ椂淇濈暀鍘?URL銆?*/
 async function downloadImage(remoteUrl: string, rootPageId: string): Promise<string> {
   let baseName = 'image'
   try {
@@ -244,15 +208,14 @@ async function downloadImage(remoteUrl: string, rootPageId: string): Promise<str
     baseName = decodeURIComponent(pathParts[pathParts.length - 1]) || 'image'
   } catch { /* ignore */ }
 
-  // 基于 URL pathname 哈希生成唯一文件名（剔除 query string，避�?presigned URL 签名变化导致重复下载�?
-  const stableKey = new URL(remoteUrl).pathname
+  // 鍩轰簬 URL pathname 鍝堝笇鐢熸垚鍞竴鏂囦欢鍚嶏紙鍓旈櫎 query string锛岄伩鍏?presigned URL 绛惧悕鍙樺寲瀵艰嚧閲嶅涓嬭浇锛?  const stableKey = new URL(remoteUrl).pathname
   const hash = createHash('md5').update(stableKey).digest('hex').slice(0, 12)
   const ext = extname(baseName).slice(0, 8).toLowerCase() || '.bin'
   const fileName = `${hash}${ext}`
   const rootDir = join(IMAGES_DIR, rootPageId)
   const filePath = join(rootDir, fileName)
 
-  // 文件已存在则跳过下载
+  // 鏂囦欢宸插瓨鍦ㄥ垯璺宠繃涓嬭浇
   if (existsSync(filePath)) return `/api/images/${rootPageId}/${fileName}`
 
   try {
@@ -267,31 +230,27 @@ async function downloadImage(remoteUrl: string, rootPageId: string): Promise<str
   }
 }
 
-// ── API 路由分发 ─────────────────────────────────────────────────
+// 鈹€鈹€ API 璺敱鍒嗗彂 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-// URL 路径 �?路由参数映射�?
-// GET  /api/storage/page/:rootPageId/:date/:pageId         �?读取页面
-// GET  /api/storage/batch-index/:rootPageId/:date          �?批次索引
-// POST /api/storage/save                                   �?保存同步结果
-// GET  /api/storage/database/:rootPageId/:date/:pageId/:db �?读取数据�?
-// GET  /api/storage/backlinks/:rootPageId/:date/:pageId    �?反向链接
-// GET  /api/storage/versions/:rootPageId                   �?版本列表
-// DELETE /api/storage/remove/:rootPageId                   �?删除整个根页面备�?
-// DELETE /api/storage/cleanup/:rootPageId                  �?清理旧版�?
-// POST /api/storage/append-log                             �?追加日志
-// POST /api/images/import                                  �?暂存导入图片
-// GET  /api/storage/logs                                   �?查询日志
-// POST /api/storage/cleanup-logs                           �?清理日志
-// POST /api/notion/*                                       �?Notion API 代理
+// URL 璺緞 鈫?璺敱鍙傛暟鏄犲皠锛?// GET  /api/storage/page/:rootPageId/:date/:pageId         鈥?璇诲彇椤甸潰
+// GET  /api/storage/batch-index/:rootPageId/:date          鈥?鎵规绱㈠紩
+// POST /api/storage/save                                   鈥?淇濆瓨鍚屾缁撴灉
+// GET  /api/storage/database/:rootPageId/:date/:pageId/:db 鈥?璇诲彇鏁版嵁搴?// GET  /api/storage/backlinks/:rootPageId/:date/:pageId    鈥?鍙嶅悜閾炬帴
+// GET  /api/storage/versions/:rootPageId                   鈥?鐗堟湰鍒楄〃
+// DELETE /api/storage/remove/:rootPageId                   鈥?鍒犻櫎鏁翠釜鏍归〉闈㈠浠?// DELETE /api/storage/cleanup/:rootPageId                  鈥?娓呯悊鏃х増鏈?// POST /api/storage/append-log                             鈥?杩藉姞鏃ュ織
+// POST /api/images/import                                  鈥?鏆傚瓨瀵煎叆鍥剧墖
+// GET  /api/storage/logs                                   鈥?鏌ヨ鏃ュ織
+// POST /api/storage/cleanup-logs                           鈥?娓呯悊鏃ュ織
+// POST /api/notion/*                                       鈥?Notion API 浠ｇ悊
 
-/** 总路由分发：根据 method + path 分发到对应的处理逻辑 */
+/** 鎬昏矾鐢卞垎鍙戯細鏍规嵁 method + path 鍒嗗彂鍒板搴旂殑澶勭悊閫昏緫 */
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const path = url.pathname
   const method = req.method
   const segments = path.split('/').filter(Boolean)
 
-  // ── GET /api/images/:rootPageId/:fileName �?提供本地缓存的图�?──
+  // 鈹€鈹€ GET /api/images/:rootPageId/:fileName 鈥?鎻愪緵鏈湴缂撳瓨鐨勫浘鐗?鈹€鈹€
   if (method === 'GET' && path.startsWith('/api/images/')) {
     // segments = ['api','images','rootPageId','fileName']
     if (segments.length < 4) return errorResponse('Invalid path', 400)
@@ -316,46 +275,40 @@ async function handleRequest(req: Request): Promise<Response> {
     }
   }
 
-  // ── GET /api/storage/index �?全局索引（首页卡片列表） ──
+  // 鈹€鈹€ GET /api/storage/index 鈥?鍏ㄥ眬绱㈠紩锛堥椤靛崱鐗囧垪琛級 鈹€鈹€
   if (method === 'GET' && path === '/api/storage/index') {
     return jsonResponse(await buildGlobalIndex())
   }
 
-  // ── POST /api/images/import �?暂存导入图片（返回外�?URL �?Notion files 属性使用） ──
+  // 鈹€鈹€ POST /api/images/import 鈥?鏆傚瓨瀵煎叆鍥剧墖锛堣繑鍥炲閮?URL 渚?Notion files 灞炴€т娇鐢級 鈹€鈹€
   if (method === 'POST' && path === '/api/images/import') {
     return handleImageImport(req)
   }
 
-  // ── POST /api/db-import/create-page �?代理创建 Notion 数据库页面（�?CORS�?──
+  // 鈹€鈹€ POST /api/db-import/create-page 鈥?浠ｇ悊鍒涘缓 Notion 鏁版嵁搴撻〉闈紙缁?CORS锛?鈹€鈹€
   if (method === 'POST' && path === '/api/db-import/create-page') {
     return handleCreateDatabasePage(req)
   }
 
-  // ── POST /api/db-import/update-page �?代理更新 Notion 数据库页面（�?CORS�?──
-  if (method === 'POST' && path === '/api/db-import/update-page') {
-    return handleUpdateDatabasePage(req)
-  }
-
-  // ── POST /api/sync/sse �?全链�?SSE 同步（fetch→parse→save 一站式流式输出�?──
+  // 鈹€鈹€ POST /api/sync/sse 鈥?鍏ㄩ摼璺?SSE 鍚屾锛坒etch鈫抪arse鈫抯ave 涓€绔欏紡娴佸紡杈撳嚭锛?鈹€鈹€
   if (method === 'POST' && path === '/api/sync/sse') {
     return handleSyncSSE(req)
   }
 
-  // ── GET /api/storage/page/:rootPageId/:date/:pageId �?读取单个页面 ──
+  // 鈹€鈹€ GET /api/storage/page/:rootPageId/:date/:pageId 鈥?璇诲彇鍗曚釜椤甸潰 鈹€鈹€
   if (method === 'GET' && path.startsWith('/api/storage/page/')) {
     // segments = ['api','storage','page','rootPageId','date','pageId',...]
     if (segments.length < 6) return errorResponse('Invalid path', 400)
-    const rootPageId = segments[3] // 根目录保�?32 �?hex 格式
+    const rootPageId = segments[3]
     const date = segments[4]
-    const pageId = normalizePageId(segments.slice(5).join('/')) // 子页面目录是 UUID 破折号格�?
+    const pageId = segments.slice(5).join('/')
 
-    // 读取页面�?page.json
+    // 璇诲彇椤甸潰鐨?page.json
     const pageDir = join(JSON_DIR, rootPageId, date, pageId)
     const page = await readJsonSafe(join(pageDir, 'page.json'))
     if (!page) return jsonResponse(null, 404)
 
-    // 读取子页面（children 目录�?
-    const children: Record<string, unknown> = {}
+    // 璇诲彇瀛愰〉闈紙children 鐩綍锛?    const children: Record<string, unknown> = {}
     const childrenDir = join(pageDir, 'children')
     if (existsSync(childrenDir)) {
       const childFiles = await readdir(childrenDir)
@@ -366,26 +319,24 @@ async function handleRequest(req: Request): Promise<Response> {
       }
     }
 
-    // 读取内嵌数据库（databases 目录�?
-    const databases: Record<string, unknown> = {}
+    // 璇诲彇鍐呭祵鏁版嵁搴擄紙databases 鐩綍锛?    const databases: Record<string, unknown> = {}
     const databasesDir = join(pageDir, 'databases')
     if (existsSync(databasesDir)) {
       const dbFiles = await readdir(databasesDir)
       for (const dbFile of dbFiles) {
         const dbId = dbFile.replace('.json', '')
         const dbData = await readJsonSafe(join(databasesDir, dbFile))
-        if (dbData) databases[dbId] = normalizeDatabase(dbData)
+        if (dbData) databases[dbId] = dbData
       }
     }
 
-    // 返回页面 + 子页�?+ 数据�?+ 子页面摘�?
-    return jsonResponse({ page, children, databases, subPages: extractSubPageCards(page as Record<string, unknown>) })
+    // 杩斿洖椤甸潰 + 瀛愰〉闈?+ 鏁版嵁搴?+ 瀛愰〉闈㈡憳瑕?    return jsonResponse({ page, children, databases, subPages: extractSubPageCards(page as Record<string, unknown>) })
   }
 
-  // ── GET /api/storage/batch-index/:rootPageId/:date �?批次索引 ──
+  // 鈹€鈹€ GET /api/storage/batch-index/:rootPageId/:date 鈥?鎵规绱㈠紩 鈹€鈹€
   if (method === 'GET' && path.startsWith('/api/storage/batch-index/')) {
     if (segments.length < 6) return errorResponse('Invalid path', 400)
-    const rootPageId = segments[3] // 根目�?32 �?hex
+    const rootPageId = segments[3]
     const date = segments[4]
     const indexFile = join(JSON_DIR, rootPageId, date, 'index.json')
     const index = await readJsonSafe(indexFile)
@@ -393,26 +344,26 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(null, 404)
   }
 
-  // ── POST /api/storage/save �?批量保存同步结果 ──
-  // 请求�? { rootPageId, pages: [{ page, children?, databases? }] }
+  // 鈹€鈹€ POST /api/storage/save 鈥?鎵归噺淇濆瓨鍚屾缁撴灉 鈹€鈹€
+  // 璇锋眰浣? { rootPageId, pages: [{ page, children?, databases? }] }
   if (method === 'POST' && path === '/api/storage/save') {
     const body = (await req.json()) as Record<string, unknown>
     const result = await handleSave(body)
     return jsonResponse(result)
   }
 
-  // ── POST /api/storage/save-sse �?批量保存（SSE 实时输出进度�?──
+  // 鈹€鈹€ POST /api/storage/save-sse 鈥?鎵归噺淇濆瓨锛圫SE 瀹炴椂杈撳嚭杩涘害锛?鈹€鈹€
   if (method === 'POST' && path === '/api/storage/save-sse') {
     const body = (await req.json()) as Record<string, unknown>
     return handleSaveSSE(body)
   }
 
-  // ── GET /api/storage/database/:rootPageId/:date/:pageId/:databaseId �?读取数据�?──
+  // 鈹€鈹€ GET /api/storage/database/:rootPageId/:date/:pageId/:databaseId 鈥?璇诲彇鏁版嵁搴?鈹€鈹€
   if (method === 'GET' && path.startsWith('/api/storage/database/')) {
     if (segments.length < 7) return errorResponse('Invalid path', 400)
-    const rootPageId = segments[3] // 根目�?32 �?hex
+    const rootPageId = segments[3]
     const date = segments[4]
-    const pageId = normalizePageId(segments[5]) // 子目�?UUID 破折�?
+    const pageId = segments[5]
     const databaseId = segments[6]
 
     const dbPath = join(JSON_DIR, rootPageId, date, pageId, 'databases', `${databaseId}.json`)
@@ -421,38 +372,37 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(db)
   }
 
-  // ── GET /api/storage/backlinks/:rootPageId/:date/:pageId �?反向链接 ──
+  // 鈹€鈹€ GET /api/storage/backlinks/:rootPageId/:date/:pageId 鈥?鍙嶅悜閾炬帴 鈹€鈹€
   if (method === 'GET' && path.startsWith('/api/storage/backlinks/')) {
     if (segments.length < 6) return errorResponse('Invalid path', 400)
-    const rootPageId = segments[3] // 根目�?32 �?hex
+    const rootPageId = segments[3]
     const date = segments[4]
-    const pageId = normalizePageId(segments.slice(5).join('/')) // 子页�?UUID
+    const pageId = segments.slice(5).join('/')
     return jsonResponse(await buildBacklinks(rootPageId, date, pageId))
   }
 
-  // ── GET /api/storage/versions/:rootPageId �?版本列表 ──
+  // 鈹€鈹€ GET /api/storage/versions/:rootPageId 鈥?鐗堟湰鍒楄〃 鈹€鈹€
   if (method === 'GET' && path.startsWith('/api/storage/versions/')) {
     const rootPageId = segments[3]
     const versions = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
     return jsonResponse(versions)
   }
 
-  // ── DELETE /api/storage/remove/:rootPageId �?删除整个根页面备�?──
+  // 鈹€鈹€ DELETE /api/storage/remove/:rootPageId 鈥?鍒犻櫎鏁翠釜鏍归〉闈㈠浠?鈹€鈹€
   if (method === 'DELETE' && path.startsWith('/api/storage/remove/')) {
-    const rootPageId = segments[3] // 根目�?32 �?hex
+    const rootPageId = segments[3]
     const rootDir = join(JSON_DIR, rootPageId)
     if (existsSync(rootDir)) {
       await rmRecursive(rootDir)
     }
-    // 同时删除该根页面的图片缓�?
-    const imagesRootDir = join(IMAGES_DIR, rootPageId)
+    // 鍚屾椂鍒犻櫎璇ユ牴椤甸潰鐨勫浘鐗囩紦瀛?    const imagesRootDir = join(IMAGES_DIR, rootPageId)
     if (existsSync(imagesRootDir)) {
       await rmRecursive(imagesRootDir)
     }
     return jsonResponse({ ok: true })
   }
 
-  // ── DELETE /api/storage/cleanup/:rootPageId �?清理旧版�?──
+  // 鈹€鈹€ DELETE /api/storage/cleanup/:rootPageId 鈥?娓呯悊鏃х増鏈?鈹€鈹€
   if (method === 'DELETE' && path.startsWith('/api/storage/cleanup/')) {
     const rootPageId = segments[3]
     const allDates = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
@@ -462,14 +412,14 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse({ ok: true })
   }
 
-  // ── POST /api/storage/append-log �?追加日志�?──
+  // 鈹€鈹€ POST /api/storage/append-log 鈥?杩藉姞鏃ュ織琛?鈹€鈹€
   if (method === 'POST' && path === '/api/storage/append-log') {
     const body = (await req.json()) as { fileName: string; line: string }
     await appendToLog(body.fileName, body.line)
     return jsonResponse({ ok: true })
   }
 
-  // ── GET /api/storage/logs �?查询日志 ──
+  // 鈹€鈹€ GET /api/storage/logs 鈥?鏌ヨ鏃ュ織 鈹€鈹€
   if (method === 'GET' && path === '/api/storage/logs') {
     const date = url.searchParams.get('date') ?? undefined
     const level = url.searchParams.get('level') ?? undefined
@@ -478,13 +428,13 @@ async function handleRequest(req: Request): Promise<Response> {
     return jsonResponse(logs)
   }
 
-  // ── POST /api/storage/cleanup-logs �?清理过期日志 ──
+  // 鈹€鈹€ POST /api/storage/cleanup-logs 鈥?娓呯悊杩囨湡鏃ュ織 鈹€鈹€
   if (method === 'POST' && path === '/api/storage/cleanup-logs') {
     await cleanupLogs()
     return jsonResponse({ ok: true })
   }
 
-  // ── GET /api/images/:filename �?提供本地缓存的图�?──
+  // 鈹€鈹€ GET /api/images/:filename 鈥?鎻愪緵鏈湴缂撳瓨鐨勫浘鐗?鈹€鈹€
   if (method === 'GET' && path.startsWith('/api/images/')) {
     const filename = segments.slice(2).join('/')
     const imagePath = join(IMAGES_DIR, filename)
@@ -511,31 +461,27 @@ async function handleRequest(req: Request): Promise<Response> {
     }
   }
 
-  // ── /api/notion/* �?转发�?Notion API 代理 ──
+  // 鈹€鈹€ /api/notion/* 鈥?杞彂鍒?Notion API 浠ｇ悊 鈹€鈹€
   if (path.startsWith('/api/notion/')) {
     return handleNotionProxy(req)
   }
 
-  // 未匹配任何路�?
-  return new Response('Not Found', { status: 404 })
+  // 鏈尮閰嶄换浣曡矾鐢?  return new Response('Not Found', { status: 404 })
 }
 
-// ── Notion API 代理 ───────────────────────────────────────────────
+// 鈹€鈹€ Notion API 浠ｇ悊 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-/** Notion REST API 基础地址 */
+/** Notion REST API 鍩虹鍦板潃 */
 const NOTION_API_BASE = 'https://api.notion.com/v1'
-/** Notion API 版本 */
+/** Notion API 鐗堟湰 */
 const NOTION_VERSION = '2022-06-28'
 
 /**
- * 构建全局索引�?
- * 扫描 json/{rootPageId}/{date}/index.json，聚合所有批次的页面摘要�?
- * 供首页「已备份页面」列表使用�?
- */
+ * 鏋勫缓鍏ㄥ眬绱㈠紩銆? * 鎵弿 json/{rootPageId}/{date}/index.json锛岃仛鍚堟墍鏈夋壒娆＄殑椤甸潰鎽樿锛? * 渚涢椤点€屽凡澶囦唤椤甸潰銆嶅垪琛ㄤ娇鐢ㄣ€? */
 async function buildGlobalIndex(): Promise<Record<string, unknown>> {
   const batches: unknown[] = []
 
-  // 读取所有根页面目录
+  // 璇诲彇鎵€鏈夋牴椤甸潰鐩綍
   let rootDirs: string[]
   try {
     rootDirs = await readdir(JSON_DIR)
@@ -549,8 +495,7 @@ async function buildGlobalIndex(): Promise<Record<string, unknown>> {
     try { statInfo = await stat(rootPath) } catch { continue }
     if (!statInfo.isDirectory()) continue
 
-    // 按日期降序遍�?
-    const dateDirs = (await listDirs(rootPath)).sort().reverse()
+    // 鎸夋棩鏈熼檷搴忛亶鍘?    const dateDirs = (await listDirs(rootPath)).sort().reverse()
     for (const date of dateDirs) {
       const indexPath = join(rootPath, date, 'index.json')
       const idx = await readJsonSafe(indexPath) as Record<string, unknown> | null
@@ -568,30 +513,27 @@ async function buildGlobalIndex(): Promise<Record<string, unknown>> {
 }
 
 /**
- * Notion API 代理分发�?
- * 浏览器无法直�?api.notion.com（CORS 限制），
- * 所�?Notion API 请求�?Vite 中间件转发，apiKey 通过 X-Notion-Token header 传递�?
- */
+ * Notion API 浠ｇ悊鍒嗗彂銆? * 娴忚鍣ㄦ棤娉曠洿杩?api.notion.com锛圕ORS 闄愬埗锛夛紝
+ * 鎵€鏈?Notion API 璇锋眰鐢?Vite 涓棿浠惰浆鍙戯紝apiKey 閫氳繃 X-Notion-Token header 浼犻€掋€? */
 async function handleNotionProxy(req: Request): Promise<Response> {
   const url = new URL(req.url)
   const method = req.method
   const path = url.pathname
 
-  // 从请求头提取 API token
+  // 浠庤姹傚ご鎻愬彇 API token
   const notionToken = req.headers.get('X-Notion-Token')
   if (!notionToken) {
     return errorResponse('Missing X-Notion-Token header (set apiKey in config)', 401)
   }
 
-  // 构�?Notion API 公共请求�?
-  const commonHeaders: Record<string, string> = {
+  // 鏋勯€?Notion API 鍏叡璇锋眰澶?  const commonHeaders: Record<string, string> = {
     'Authorization': `Bearer ${notionToken}`,
     'Notion-Version': NOTION_VERSION,
     'Content-Type': 'application/json',
   }
 
   try {
-    // ── POST /api/notion/test-connection �?测试连接（调�?/users/me 验证 token 有效性） ──
+    // 鈹€鈹€ POST /api/notion/test-connection 鈥?娴嬭瘯杩炴帴锛堣皟鐢?/users/me 楠岃瘉 token 鏈夋晥鎬э級 鈹€鈹€
     if (method === 'POST' && path === '/api/notion/test-connection') {
       const res = await fetch(`${NOTION_API_BASE}/users/me`, { headers: commonHeaders })
       if (res.ok) {
@@ -605,12 +547,12 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse({ ok: false, message: `Notion API error: ${res.status} ${err}` }, 502)
     }
 
-    // ── POST /api/notion/fetch-page �?获取 Notion 页面原始数据（页面元数据 + blocks�?──
+    // 鈹€鈹€ POST /api/notion/fetch-page 鈥?鑾峰彇 Notion 椤甸潰鍘熷鏁版嵁锛堥〉闈㈠厓鏁版嵁 + blocks锛?鈹€鈹€
     if (method === 'POST' && path === '/api/notion/fetch-page') {
       const body = await req.json() as { pageId: string }
       const { pageId } = body
 
-      // 并行请求页面元数据和所�?blocks
+      // 骞惰璇锋眰椤甸潰鍏冩暟鎹拰鎵€鏈?blocks
       const [pageRes, blocksRes] = await Promise.all([
         fetch(`${NOTION_API_BASE}/pages/${pageId}`, { headers: commonHeaders }),
         fetchBlocks(pageId, commonHeaders),
@@ -625,7 +567,7 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse({ page, blocks: blocksRes })
     }
 
-    // ── POST /api/notion/fetch-block-children �?获取 block 的子节点 ──
+    // 鈹€鈹€ POST /api/notion/fetch-block-children 鈥?鑾峰彇 block 鐨勫瓙鑺傜偣 鈹€鈹€
     if (method === 'POST' && path === '/api/notion/fetch-block-children') {
       const body = await req.json() as { blockId: string; startCursor?: string }
       const { blockId, startCursor } = body
@@ -642,7 +584,7 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse(data)
     }
 
-    // ── POST /api/notion/fetch-database �?查询数据库（获取所有行�?──
+    // 鈹€鈹€ POST /api/notion/fetch-database 鈥?鏌ヨ鏁版嵁搴擄紙鑾峰彇鎵€鏈夎锛?鈹€鈹€
     if (method === 'POST' && path === '/api/notion/fetch-database') {
       const body = await req.json() as { databaseId: string }
       const { databaseId } = body
@@ -659,7 +601,7 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse({ database: data, results: (data as { results?: unknown }).results || [] })
     }
 
-    // ── POST /api/notion/fetch-database-schema �?获取数据�?schema 定义 ──
+    // 鈹€鈹€ POST /api/notion/fetch-database-schema 鈥?鑾峰彇鏁版嵁搴?schema 瀹氫箟 鈹€鈹€
     if (method === 'POST' && path === '/api/notion/fetch-database-schema') {
       const body = await req.json() as { databaseId: string }
       const { databaseId } = body
@@ -673,13 +615,13 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       return jsonResponse({ database: data })
     }
 
-    // ── POST /api/notion/inspect-database �?综合检查（同时返回 schema + query 原始响应�?──
-    // 用于诊断数据库权限、权限不足等问题，保留完整的 Notion API 返回
+    // 鈹€鈹€ POST /api/notion/inspect-database 鈥?缁煎悎妫€鏌ワ紙鍚屾椂杩斿洖 schema + query 鍘熷鍝嶅簲锛?鈹€鈹€
+    // 鐢ㄤ簬璇婃柇鏁版嵁搴撴潈闄愩€佹潈闄愪笉瓒崇瓑闂锛屼繚鐣欏畬鏁寸殑 Notion API 杩斿洖
     if (method === 'POST' && path === '/api/notion/inspect-database') {
       const body = await req.json() as { databaseId: string }
       const { databaseId } = body
 
-      // 并行请求 schema �?query
+      // 骞惰璇锋眰 schema 鍜?query
       const [schemaRes, queryRes] = await Promise.all([
         fetch(`${NOTION_API_BASE}/databases/${databaseId}`, { headers: commonHeaders }),
         fetch(`${NOTION_API_BASE}/databases/${databaseId}/query`,
@@ -705,74 +647,6 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       })
     }
 
-    // ── POST /api/notion/clear-database �?清空数据库全部行（调�?Notion API archive�?──
-    if (method === 'POST' && path === '/api/notion/clear-database') {
-      const body = await req.json() as { databaseId: string }
-      const { databaseId } = body
-
-      // 1. 查询所有行
-      const results: unknown[] = []
-      let hasMore = true
-      let startCursor: string | undefined
-      while (hasMore) {
-        const queryBody: Record<string, unknown> = { page_size: 100 }
-        if (startCursor) queryBody.start_cursor = startCursor
-        const queryRes = await fetch(
-          `${NOTION_API_BASE}/databases/${databaseId}/query`,
-          { method: 'POST', headers: commonHeaders, body: JSON.stringify(queryBody) },
-        )
-        if (!queryRes.ok) {
-          const err = await queryRes.text()
-          return jsonResponse({ error: `Failed to query: ${queryRes.status} ${err}` }, 502)
-        }
-        const page = await queryRes.json() as Record<string, unknown>
-        const rows = (page.results as unknown[]) ?? []
-        results.push(...rows)
-        hasMore = Boolean(page.has_more)
-        startCursor = page.next_cursor as string | undefined
-      }
-
-      const totalRows = results.length
-      if (totalRows === 0) {
-        return jsonResponse({ ok: true, archived: 0, total: 0 })
-      }
-
-      // 2. 逐行 archive（Notion API 不支持批量删除）
-      const errors: Array<{ pageId: string; error: string }> = []
-      const DELAY_MS = 334 // Notion API 速率限制 ~3 req/s
-      for (let i = 0; i < totalRows; i++) {
-        const row = results[i] as Record<string, unknown>
-        const pageId = row.id as string
-        try {
-          const archiveRes = await fetch(
-            `${NOTION_API_BASE}/pages/${pageId}`,
-            {
-              method: 'PATCH',
-              headers: commonHeaders,
-              body: JSON.stringify({ archived: true }),
-            },
-          )
-          if (!archiveRes.ok) {
-            const err = await archiveRes.text()
-            errors.push({ pageId, error: `${archiveRes.status} ${err}` })
-          }
-        } catch (e) {
-          errors.push({ pageId, error: e instanceof Error ? e.message : String(e) })
-        }
-        // 速率限制延迟
-        if (i < totalRows - 1) {
-          await new Promise(r => setTimeout(r, DELAY_MS))
-        }
-      }
-
-      return jsonResponse({
-        ok: errors.length === 0,
-        archived: totalRows - errors.length,
-        total: totalRows,
-        errors: errors.length > 0 ? errors : undefined,
-      })
-    }
-
     return errorResponse(`Unknown Notion proxy endpoint: ${path}`, 404)
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e)
@@ -781,9 +655,7 @@ async function handleNotionProxy(req: Request): Promise<Response> {
 }
 
 /**
- * 分页拉取 block 的所有子节点�?
- * 处理 Notion API 分页（cursor-based），并递归拉取嵌套子块（toggle、column 等）�?
- */
+ * 鍒嗛〉鎷夊彇 block 鐨勬墍鏈夊瓙鑺傜偣銆? * 澶勭悊 Notion API 鍒嗛〉锛坈ursor-based锛夛紝骞堕€掑綊鎷夊彇宓屽瀛愬潡锛坱oggle銆乧olumn 绛夛級銆? */
 async function fetchBlocks(
   blockId: string,
   headers: Record<string, string>,
@@ -810,18 +682,13 @@ async function fetchBlocks(
     cursor = data.next_cursor as string | undefined
   }
 
-  // 拉取嵌套子块（toggle/column_list 等内�?children�?
-  await fetchNestedChildren(allBlocks, headers)
+  // 鎷夊彇宓屽瀛愬潡锛坱oggle/column_list 绛夊唴宓?children锛?  await fetchNestedChildren(allBlocks, headers)
 
   return allBlocks
 }
 
 /**
- * 需要递归拉取嵌套子块�?block 类型白名单�?
- * Notion API �?/blocks/{id}/children 只返回顶层块�?
- * toggle、column、table 等类型的 children 字段�?null�?
- * 需要额外调�?/blocks/{block_id}/children 获取�?
- */
+ * 闇€瑕侀€掑綊鎷夊彇宓屽瀛愬潡鐨?block 绫诲瀷鐧藉悕鍗曘€? * Notion API 鐨?/blocks/{id}/children 鍙繑鍥為《灞傚潡锛? * toggle銆乧olumn銆乼able 绛夌被鍨嬬殑 children 瀛楁涓?null锛? * 闇€瑕侀澶栬皟鐢?/blocks/{block_id}/children 鑾峰彇銆? */
 const NESTED_BLOCK_TYPES = new Set([
   'toggle',
   'column_list',
@@ -833,9 +700,7 @@ const NESTED_BLOCK_TYPES = new Set([
 ])
 
 /**
- * 递归拉取 has_children 块的嵌套子内容�?
- * 将拉取结果填充到对应 block �?children 字段中�?
- */
+ * 閫掑綊鎷夊彇 has_children 鍧楃殑宓屽瀛愬唴瀹广€? * 灏嗘媺鍙栫粨鏋滃～鍏呭埌瀵瑰簲 block 鐨?children 瀛楁涓€? */
 async function fetchNestedChildren(
   blocks: unknown[],
   headers: Record<string, string>,
@@ -846,8 +711,7 @@ async function fetchNestedChildren(
 
   for (const block of blocks) {
     const b = block as Record<string, unknown>
-    // has_children = true �?children �?null �?需要拉�?
-    if (b.has_children && !b.children) {
+    // has_children = true 浣?children 涓?null 鈫?闇€瑕佹媺鍙?    if (b.has_children && !b.children) {
       const type = b.type as string
       const id = b.id as string
 
@@ -856,8 +720,7 @@ async function fetchNestedChildren(
       childFetchTasks.push(
         fetchBlocks(id, headers).then((nestedBlocks) => {
           (b as Record<string, unknown>).children = nestedBlocks
-          // 继续递归：嵌套子块可能还有更深层的子�?
-          return fetchNestedChildren(nestedBlocks, headers)
+          // 缁х画閫掑綊锛氬祵濂楀瓙鍧楀彲鑳借繕鏈夋洿娣卞眰鐨勫瓙鍧?          return fetchNestedChildren(nestedBlocks, headers)
         }),
       )
     }
@@ -866,9 +729,9 @@ async function fetchNestedChildren(
   await Promise.all(childFetchTasks)
 }
 
-// ── 子页面摘要提�?────────────────────────────────────────────────
+// 鈹€鈹€ 瀛愰〉闈㈡憳瑕佹彁鍙?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-/** 子页面摘�?*/
+/** 瀛愰〉闈㈡憳瑕?*/
 interface SubPageCard {
   pageId: string
   title: string
@@ -880,13 +743,11 @@ interface SubPageCard {
 }
 
 /**
- * 在已解析的页�?block 树中提取所�?child_page 类型的子页面摘要�?
- * 递归扫描整棵 block 树（包括嵌套子块）�?
- */
+ * 鍦ㄥ凡瑙ｆ瀽鐨勯〉闈?block 鏍戜腑鎻愬彇鎵€鏈?child_page 绫诲瀷鐨勫瓙椤甸潰鎽樿銆? * 閫掑綊鎵弿鏁存５ block 鏍戯紙鍖呮嫭宓屽瀛愬潡锛夈€? */
 function extractSubPageCards(page: Record<string, unknown>): SubPageCard[] {
   const cards: SubPageCard[] = []
 
-  /** 递归遍历 blocks 数组 */
+  /** 閫掑綊閬嶅巻 blocks 鏁扮粍 */
   function walk(blocks: unknown[]): void {
     if (!Array.isArray(blocks)) return
     for (const b of blocks) {
@@ -895,7 +756,7 @@ function extractSubPageCards(page: Record<string, unknown>): SubPageCard[] {
       if (type === 'child_page') {
         cards.push({
           pageId: block.id as string,
-          title: (block.title as string) || '无标题',
+          title: (block.title as string) || '鏃犳爣棰?,
           icon: (block.icon as string) ?? null,
           coverUrl: (block.coverUrl as string) ?? null,
           blockCount: (block.blockCount as number) ?? 0,
@@ -903,7 +764,7 @@ function extractSubPageCards(page: Record<string, unknown>): SubPageCard[] {
           direction: 'child',
         })
       }
-      // 递归扫描嵌套子块
+      // 閫掑綊鎵弿宓屽瀛愬潡
       if (block.children && Array.isArray(block.children)) {
         walk(block.children as unknown[])
       }
@@ -914,12 +775,10 @@ function extractSubPageCards(page: Record<string, unknown>): SubPageCard[] {
   return cards
 }
 
-// ── 反向链接 ──────────────────────────────────────────────────────
+// 鈹€鈹€ 鍙嶅悜閾炬帴 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /**
- * 构建反向链接：扫描同批次下所有页面，找出引用�?targetPageId 的页面�?
- * 反向链接表示"哪些页面链接到我"�?
- */
+ * 鏋勫缓鍙嶅悜閾炬帴锛氭壂鎻忓悓鎵规涓嬫墍鏈夐〉闈紝鎵惧嚭寮曠敤浜?targetPageId 鐨勯〉闈€? * 鍙嶅悜閾炬帴琛ㄧず"鍝簺椤甸潰閾炬帴鍒版垜"銆? */
 async function buildBacklinks(
   rootPageId: string,
   date: string,
@@ -930,8 +789,7 @@ async function buildBacklinks(
 
   const cards: SubPageCard[] = []
 
-  // 列出批次下所有页面目�?
-  let pageDirs: string[]
+  // 鍒楀嚭鎵规涓嬫墍鏈夐〉闈㈢洰褰?  let pageDirs: string[]
   try {
     pageDirs = await readdir(batchDir)
   } catch {
@@ -947,7 +805,7 @@ async function buildBacklinks(
     const blocks = page.blocks as unknown[] | undefined
     if (!Array.isArray(blocks)) continue
 
-    // �?blocks 树中搜索 child_page 类型�?id === targetPageId 的块
+    // 鍦?blocks 鏍戜腑鎼滅储 child_page 绫诲瀷涓?id === targetPageId 鐨勫潡
     let found = false
     function walk(b: unknown[]): void {
       for (const item of b) {
@@ -967,7 +825,7 @@ async function buildBacklinks(
     if (found) {
       cards.push({
         pageId: page.pageId as string,
-        title: (page.title as string) || '无标题',
+        title: (page.title as string) || '鏃犳爣棰?,
         icon: (page.icon as string) ?? null,
         coverUrl: (page.cover as Record<string, unknown>)?.['url'] as string ?? null,
         blockCount: Array.isArray(blocks) ? blocks.length : 0,
@@ -980,33 +838,26 @@ async function buildBacklinks(
   return cards
 }
 
-// ── 文件系统助手 ──────────────────────────────────────────────────
+// 鈹€鈹€ 鏂囦欢绯荤粺鍔╂墜 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
-// ══════════════════════════════════════════════════════════════════�?
-//  SSE 同步引擎（服务端全链路）
-// ══════════════════════════════════════════════════════════════════�?
-
-/** 逐字发送日志到 SSE �?*/
-const CHAR_DELAY = 30 // 逐字间隔（ms），匹配前端视觉刷新
-
-async function snkLog(ctrl: ReadableStreamDefaultController, message: string): Promise<void> {
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?//  SSE 鍚屾寮曟搸锛堟湇鍔＄鍏ㄩ摼璺級
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+/** 閫愬瓧鍙戦€佹棩蹇楀埌 SSE 娴?*/
+function snkLog(ctrl: ReadableStreamDefaultController, message: string): void {
   const encoder = new TextEncoder()
   for (const char of message) {
     ctrl.enqueue(encoder.encode(sseEvent('log', { chunk: char })))
-    // 每条 SSE 帧后让出宏任务：确保 Node.js HTTP �?flush �?TCP
-    await new Promise<void>(r => setTimeout(r, CHAR_DELAY))
   }
-  // 行结束信�?
+  // 鍙戦€佹崲琛屼綔涓鸿缁撴潫鏍囪
   ctrl.enqueue(encoder.encode(sseEvent('log', { chunk: '\n' })))
-  await new Promise<void>(r => setTimeout(r, 0))
 }
 
-/** 发送单任务状�?*/
+/** 鍙戦€佸崟浠诲姟鐘舵€?*/
 function snkTask(ctrl: ReadableStreamDefaultController, task: Record<string, unknown>): void {
   ctrl.enqueue(new TextEncoder().encode(sseEvent('task', task)))
 }
 
-// ── POST /api/sync/sse 路由分发 ──
+// 鈹€鈹€ POST /api/sync/sse 璺敱鍒嗗彂 鈹€鈹€
 
 async function handleSyncSSE(req: Request): Promise<Response> {
   const notionToken = req.headers.get('X-Notion-Token')
@@ -1027,7 +878,7 @@ async function handleSyncSSE(req: Request): Promise<Response> {
       const log = (msg: string) => snkLog(controller, msg)
       const task = (t: Record<string, unknown>) => snkTask(controller, t)
       const done = (message?: string) => {
-        controller.enqueue(encoder.encode(sseEvent('done', { message: message || '同步完成' })))
+        controller.enqueue(encoder.encode(sseEvent('done', { message: message || '鍚屾瀹屾垚' })))
       }
       const error = (msg: string) => {
         controller.enqueue(encoder.encode(sseEvent('error', { message: msg })))
@@ -1038,9 +889,9 @@ async function handleSyncSSE(req: Request): Promise<Response> {
         const visited = new Set<string>()
         const collected: Array<{ page: Record<string, unknown>; databases?: Array<{ databaseId: string; database: Record<string, unknown>; results?: unknown }> }> = []
 
-        await log(`🚀 开始同步 ${pageIds.length} 个页面...\n`)
+        await log(`馃殌 寮€濮嬪悓姝?${pageIds.length} 涓〉闈?..\n`)
 
-        // 并发控制参数
+        // 骞跺彂鎺у埗鍙傛暟
         const maxConcurrency = 2
         const minInterval = 350
         let running = 0
@@ -1084,7 +935,7 @@ async function handleSyncSSE(req: Request): Promise<Response> {
           }
         }
 
-        // ── 同步单页 ──
+        // 鈹€鈹€ 鍚屾鍗曢〉 鈹€鈹€
         const syncOnePage = async (pageId: string, initialTitle?: string, isChild = false): Promise<void> => {
           if (visited.has(pageId)) return
           visited.add(pageId)
@@ -1094,7 +945,7 @@ async function handleSyncSSE(req: Request): Promise<Response> {
           task({ pageId, title, status: 'pending', progress: 0 })
 
           try {
-            await log(`📄 开始同步: ${title}\n`)
+            await log(`馃搫 寮€濮嬪悓姝? ${title}\n`)
             task({ pageId, title, status: 'fetching', progress: 10 })
 
             // Phase 1: fetch page
@@ -1105,13 +956,13 @@ async function handleSyncSSE(req: Request): Promise<Response> {
 
             if (!pageRes.ok) {
               const err = await pageRes.text()
-              throw new Error(`获取页面失败: ${pageRes.status} ${err}`)
+              throw new Error(`鑾峰彇椤甸潰澶辫触: ${pageRes.status} ${err}`)
             }
 
             const pageData = await pageRes.json() as Record<string, unknown>
             const properties = (pageData.properties as Record<string, unknown>) || {}
 
-            // 提取标题
+            // 鎻愬彇鏍囬
             for (const key of Object.keys(properties)) {
               const prop = properties[key] as Record<string, unknown>
               if (prop?.type === 'title') {
@@ -1148,7 +999,7 @@ async function handleSyncSSE(req: Request): Promise<Response> {
                 const dbId = b.id as string
                 const dbTitle = ((b as { child_database?: { title?: string } }).child_database?.title as string) || dbId
                 try {
-                  await log(`🗄 获取数据库: ${dbTitle}\n`)
+                  await log(`馃梽 鑾峰彇鏁版嵁搴? ${dbTitle}\n`)
                   const [schemaRes, queryRes] = await Promise.all([
                     fetch(`${NOTION_API_BASE}/databases/${dbId}`, { headers: commonHeaders }),
                     fetch(`${NOTION_API_BASE}/databases/${dbId}/query`, {
@@ -1165,10 +1016,10 @@ async function handleSyncSSE(req: Request): Promise<Response> {
                       results: (query as { results?: unknown }).results ?? [],
                     }
                     databases.push({ databaseId: dbId, database: db })
-                    await log(`✅ 数据库获取完成 (${Array.isArray(db.results) ? db.results.length : 0} 条记录)\n`)
+                    await log(`鉁?鏁版嵁搴撹幏鍙栧畬鎴?(${Array.isArray(db.results) ? db.results.length : 0} 鏉¤褰?\n`)
                   }
                 } catch (e) {
-                  await log(`⚠️ 数据库获取失败: ${e instanceof Error ? e.message : String(e)}\n`)
+                  await log(`鈿狅笍 鏁版嵁搴撹幏鍙栧け璐? ${e instanceof Error ? e.message : String(e)}\n`)
                 }
               }
             }
@@ -1192,7 +1043,7 @@ async function handleSyncSSE(req: Request): Promise<Response> {
             }
 
             if (children.length > 0) {
-              await log(`📂 ${title} - 发现 ${children.length} 个子页面/数据库\n`)
+              await log(`馃搨 ${title} 鈥?鍙戠幇 ${children.length} 涓瓙椤甸潰/鏁版嵁搴揬n`)
             }
 
             task({ pageId, title, status: 'done', progress: 100 })
@@ -1221,17 +1072,17 @@ async function handleSyncSSE(req: Request): Promise<Response> {
                     }
                   }
                 } catch (e) {
-                  await log(`⚠️ 子数据库获取失败: ${e instanceof Error ? e.message : String(e)}\n`)
+                  await log(`鈿狅笍 瀛愭暟鎹簱鑾峰彇澶辫触: ${e instanceof Error ? e.message : String(e)}\n`)
                 }
               }
             }
 
             if (!isChild) {
-              await log(`✅ ${title} - 同步完成 (${rawBlocks.length} 个 block)\n`)
+              await log(`鉁?${title} 鈥?鍚屾瀹屾垚 (${rawBlocks.length} 涓?block)\n`)
             }
           } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e)
-            await log(`❌ ${title} - 同步失败: ${errMsg}\n`)
+            await log(`鉂?${title} 鈥?鍚屾澶辫触: ${errMsg}\n`)
             task({ pageId, title, status: 'error', progress: 0, error: errMsg })
           }
         }
@@ -1250,37 +1101,37 @@ async function handleSyncSSE(req: Request): Promise<Response> {
           return pageData.id as string || 'unknown'
         }
 
-        // ── 启动所有根任务（并发） ──
+        // 鈹€鈹€ 鍚姩鎵€鏈夋牴浠诲姟锛堝苟鍙戯級 鈹€鈹€
         const rootTasks = pageIds.map(pid => () => syncOnePage(pid))
         await Promise.all(rootTasks.map(fn => enqueue(fn)))
 
-        // 等待队列完全清空
+        // 绛夊緟闃熷垪瀹屽叏娓呯┖
         while (running > 0 || queue.length > 0) {
           await delay(100)
         }
 
-        // ── 保存 ──
+        // 鈹€鈹€ 淇濆瓨 鈹€鈹€
         if (collected.length > 0) {
-          await log('💾 开始保存同步结果...\n')
+          await log('馃捑 寮€濮嬩繚瀛樺悓姝ョ粨鏋?..\n')
 
-          // 下载图片
-          await log('🖼 下载远程图片...\n')
+          // 涓嬭浇鍥剧墖
+          await log('馃柤 涓嬭浇杩滅▼鍥剧墖...\n')
           await downloadAndReplaceImages(collected, rootPageId)
-          await log('🖼 图片下载完成\n')
+          await log('馃柤 鍥剧墖涓嬭浇瀹屾垚\n')
 
-          // 逐页写入
+          // 閫愰〉鍐欏叆
           await performSaveWrites(rootPageId, collected, (_pid: string, _title: string) => {
-            // 由于 SSE 已过 here 不用再发任务
+            // 鐢变簬 SSE 宸茶繃 here 涓嶇敤鍐嶅彂浠诲姟
           })
 
-          await log('💾 保存完成\n')
+          await log('馃捑 淇濆瓨瀹屾垚\n')
         }
 
-        await log('🎉 全部同步任务完成\n')
+        await log('馃帀 鍏ㄩ儴鍚屾浠诲姟瀹屾垚\n')
         done('sync complete')
       } catch (e) {
         error(e instanceof Error ? e.message : String(e))
-        await log(`💥 同步中断: ${e instanceof Error ? e.message : String(e)}\n`)
+        await log(`馃挜 鍚屾涓柇: ${e instanceof Error ? e.message : String(e)}\n`)
       } finally {
         controller.close()
       }
@@ -1296,9 +1147,8 @@ async function handleSyncSSE(req: Request): Promise<Response> {
   })
 }
 
-// ══════════════════════════════════════════════════════════════════�?
-
-/** 根据文件扩展名返�?MIME type */
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+/** 鏍规嵁鏂囦欢鎵╁睍鍚嶈繑鍥?MIME type */
 function getContentType(ext: string): string {
   const map: Record<string, string> = {
     '.png': 'image/png',
@@ -1314,7 +1164,7 @@ function getContentType(ext: string): string {
   return map[ext.toLowerCase()] || 'application/octet-stream'
 }
 
-// ── POST /api/storage/save 核心处理逻辑 ──────────────────────────────
+// 鈹€鈹€ POST /api/storage/save 鏍稿績澶勭悊閫昏緫 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 async function handleSave(body: Record<string, unknown>): Promise<{ ok: boolean }> {
   const rootPageId = body.rootPageId as string
@@ -1326,7 +1176,7 @@ async function handleSave(body: Record<string, unknown>): Promise<{ ok: boolean 
   return { ok: true }
 }
 
-// ── POST /api/storage/save-sse SSE 流式处理 ──────────────────────────
+// 鈹€鈹€ POST /api/storage/save-sse SSE 娴佸紡澶勭悊 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 function sseEvent(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
@@ -1357,23 +1207,22 @@ async function handleSaveSSE(body: Record<string, unknown>): Promise<Response> {
           send(event, { ...payload, step: currentStep, total: totalSteps })
         }
 
-        // Step 1: 下载图片
-        send('progress', { stage: 'images', message: '正在下载远程图片...', step: 0, total: totalSteps })
+        // Step 1: 涓嬭浇鍥剧墖
+        send('progress', { stage: 'images', message: '姝ｅ湪涓嬭浇杩滅▼鍥剧墖...', step: 0, total: totalSteps })
         await downloadAndReplaceImages(pages, rootPageId)
-        emit('progress', { stage: 'images', message: '图片下载完成', done: false })
+        emit('progress', { stage: 'images', message: '鍥剧墖涓嬭浇瀹屾垚', done: false })
 
-        // 保存：逐页写入并发送事�?
-        await performSaveWrites(rootPageId, pages, (pageId: string, pageTitle: string) => {
+        // 淇濆瓨锛氶€愰〉鍐欏叆骞跺彂閫佷簨浠?        await performSaveWrites(rootPageId, pages, (pageId: string, pageTitle: string) => {
           emit('progress', {
             stage: 'saving',
             pageId,
             pageTitle,
-            message: `已保�? ${pageTitle || pageId}`,
+            message: `宸蹭繚瀛? ${pageTitle || pageId}`,
             done: false,
           })
         })
 
-        send('done', { message: '保存完成', step: totalSteps, total: totalSteps })
+        send('done', { message: '淇濆瓨瀹屾垚', step: totalSteps, total: totalSteps })
       } catch (e) {
         send('error', { message: e instanceof Error ? e.message : String(e) })
       } finally {
@@ -1391,7 +1240,7 @@ async function handleSaveSSE(body: Record<string, unknown>): Promise<Response> {
   })
 }
 
-/** 执行批量写入（提取为共享函数�?*/
+/** 鎵ц鎵归噺鍐欏叆锛堟彁鍙栦负鍏变韩鍑芥暟锛?*/
 async function performSaveWrites(
   rootPageId: string,
   pages: Array<Record<string, unknown>>,
@@ -1408,11 +1257,10 @@ async function performSaveWrites(
 
     const pageDir = join(batchDir, pageId)
 
-    // 保存主页�?JSON
+    // 淇濆瓨涓婚〉闈?JSON
     await writeJson(join(pageDir, 'page.json'), page)
 
-    // 保存子页面（children 目录�?
-    const children = entry.children as Record<string, unknown> | undefined
+    // 淇濆瓨瀛愰〉闈紙children 鐩綍锛?    const children = entry.children as Record<string, unknown> | undefined
     const childrenEntries = children ? Object.keys(children) : []
     if (children && childrenEntries.length > 0) {
       const childrenDir = join(pageDir, 'children')
@@ -1421,8 +1269,7 @@ async function performSaveWrites(
       }
     }
 
-    // 保存内嵌数据库（databases 目录�?
-    const databases = entry.databases as Array<Record<string, unknown>> | undefined
+    // 淇濆瓨鍐呭祵鏁版嵁搴擄紙databases 鐩綍锛?    const databases = entry.databases as Array<Record<string, unknown>> | undefined
     const databaseIds: string[] = []
     if (databases && databases.length > 0) {
       const databasesDir = join(pageDir, 'databases')
@@ -1436,8 +1283,7 @@ async function performSaveWrites(
       }
     }
 
-    // 保存元信息（meta.json�?
-    const blocks = (page as { blocks?: unknown[] })?.blocks
+    // 淇濆瓨鍏冧俊鎭紙meta.json锛?    const blocks = (page as { blocks?: unknown[] })?.blocks
     const meta: Record<string, unknown> = {
       pageId,
       rootPageId,
@@ -1450,7 +1296,7 @@ async function performSaveWrites(
     }
     await writeJson(join(pageDir, 'meta.json'), meta)
 
-    // 构建批次条目
+    // 鏋勫缓鎵规鏉＄洰
     batchEntries.push({
       pageId,
       rootPageId,
@@ -1465,8 +1311,7 @@ async function performSaveWrites(
     onPageSaved?.(pageId, (page as { title?: string }).title ?? '')
   }
 
-  // 保存批次摘要（batchDir/index.json�?
-  const batchIndex = {
+  // 淇濆瓨鎵规鎽樿锛坆atchDir/index.json锛?  const batchIndex = {
     version: 1,
     rootPageId,
     date: today,
@@ -1475,14 +1320,14 @@ async function performSaveWrites(
   }
   await writeJson(join(batchDir, 'index.json'), batchIndex)
 
-  // 清理过旧版本
+  // 娓呯悊杩囨棫鐗堟湰
   const allDates = (await listDirs(join(JSON_DIR, rootPageId))).sort().reverse()
   for (const oldDate of allDates.slice(MAX_VERSIONS)) {
     await rmRecursive(join(JSON_DIR, rootPageId, oldDate))
   }
 }
 
-/** 递归删除目录及其所有内�?*/
+/** 閫掑綊鍒犻櫎鐩綍鍙婂叾鎵€鏈夊唴瀹?*/
 async function rmRecursive(dirPath: string): Promise<void> {
   try {
     const entries = await readdir(dirPath, { withFileTypes: true })
@@ -1494,17 +1339,15 @@ async function rmRecursive(dirPath: string): Promise<void> {
         await unlink(fullPath)
       }
     }
-    // 删除空目录本身（注意：用 unlink 而非 rmdir，因�?Windows 兼容性需要）
+    // 鍒犻櫎绌虹洰褰曟湰韬紙娉ㄦ剰锛氱敤 unlink 鑰岄潪 rmdir锛屽洜涓?Windows 鍏煎鎬ч渶瑕侊級
     await unlink(dirPath)
   } catch {
-    // 目录不存在时忽略
+    // 鐩綍涓嶅瓨鍦ㄦ椂蹇界暐
   }
 }
 
 /**
- * 尝试将字符串解析�?JSON�?
- * 解析失败时返回原始字符串�?
- */
+ * 灏濊瘯灏嗗瓧绗︿覆瑙ｆ瀽涓?JSON銆? * 瑙ｆ瀽澶辫触鏃惰繑鍥炲師濮嬪瓧绗︿覆銆? */
 function tryJsonParse(raw: string): unknown {
   try {
     return JSON.parse(raw)
@@ -1513,14 +1356,12 @@ function tryJsonParse(raw: string): unknown {
   }
 }
 
-// ── POST /api/images/import 处理�?───────────────────────────────
+// 鈹€鈹€ POST /api/images/import 澶勭悊鍣?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /**
- * 接收前端 POST �?base64 图片数据，写到本�?images/import/ 目录�?
- * 返回外部可访问的 URL（供 Notion files 属性的 external.url 使用）�?
- *
- * 请求体：{ data: string (base64), extension: string, mimeType: string }
- * 响应体：{ url: string }
+ * 鎺ユ敹鍓嶇 POST 鐨?base64 鍥剧墖鏁版嵁锛屽啓鍒版湰鍦?images/import/ 鐩綍锛? * 杩斿洖澶栭儴鍙闂殑 URL锛堜緵 Notion files 灞炴€х殑 external.url 浣跨敤锛夈€? *
+ * 璇锋眰浣擄細{ data: string (base64), extension: string, mimeType: string }
+ * 鍝嶅簲浣擄細{ url: string }
  */
 async function handleImageImport(req: Request): Promise<Response> {
   try {
@@ -1541,7 +1382,7 @@ async function handleImageImport(req: Request): Promise<Response> {
 
     await writeFile(filePath, new Uint8Array(buffer))
 
-    // 使用请求�?origin 构�?Notion API 可访问的绝对 URL
+    // 浣跨敤璇锋眰鐨?origin 鏋勯€?Notion API 鍙闂殑缁濆 URL
     const origin = new URL(req.url).origin
 
     return jsonResponse({
@@ -1553,9 +1394,7 @@ async function handleImageImport(req: Request): Promise<Response> {
 }
 
 /**
- * 代理创建 Notion 数据库页面（浏览器端�?CORS 阻止，须经服务端代理）�?
- * 请求头需携带 X-Notion-Token�?
- */
+ * 浠ｇ悊鍒涘缓 Notion 鏁版嵁搴撻〉闈紙娴忚鍣ㄧ琚?CORS 闃绘锛岄』缁忔湇鍔＄浠ｇ悊锛夈€? * 璇锋眰澶撮渶鎼哄甫 X-Notion-Token銆? */
 async function handleCreateDatabasePage(req: Request): Promise<Response> {
   const notionToken = req.headers.get('X-Notion-Token')
   if (!notionToken) {
@@ -1585,49 +1424,10 @@ async function handleCreateDatabasePage(req: Request): Promise<Response> {
   }
 }
 
-/**
- * 代理更新 Notion 数据库页面（PATCH /v1/pages/{pageId}）。
- * 前端无法直连 Notion API（CORS），由中间件转发。
- * 请求体: { pageId, properties }
- */
-async function handleUpdateDatabasePage(req: Request): Promise<Response> {
-  const notionToken = req.headers.get('X-Notion-Token')
-  if (!notionToken) {
-    return errorResponse('Missing X-Notion-Token header', 401)
-  }
-
-  try {
-    const body = await req.json() as { pageId: string; properties: Record<string, unknown> }
-    const { pageId, properties } = body
-
-    const res = await fetch(`${NOTION_API_BASE}/pages/${pageId}`, {
-      method: 'PATCH',
-      headers: {
-        'Authorization': `Bearer ${notionToken}`,
-        'Notion-Version': NOTION_VERSION,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ properties }),
-    })
-
-    if (!res.ok) {
-      const err = await res.text()
-      return jsonResponse({ ok: false, error: `${res.status}: ${err}` }, res.status)
-    }
-
-    return jsonResponse({ ok: true })
-  } catch (e) {
-    return errorResponse(`Update page error: ${e}`, 500)
-  }
-}
-
-// ── Vite 插件定义 ─────────────────────────────────────────────────
+// 鈹€鈹€ Vite 鎻掍欢瀹氫箟 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /**
- * Vite 中间件插件�?
- * 拦截 /api/* 请求，将 Node.js IncomingMessage 转换为标�?Request�?
- * 分发�?handleRequest 处理，再�?Response 写回 Node.js ServerResponse�?
- */
+ * Vite 涓棿浠舵彃浠躲€? * 鎷︽埅 /api/* 璇锋眰锛屽皢 Node.js IncomingMessage 杞崲涓烘爣鍑?Request锛? * 鍒嗗彂鍒?handleRequest 澶勭悊锛屽啀灏?Response 鍐欏洖 Node.js ServerResponse銆? */
 export function notionApiPlugin(): Plugin {
   return {
     name: 'notion-api-plugin',
@@ -1637,9 +1437,8 @@ export function notionApiPlugin(): Plugin {
           return next()
         }
 
-        // �?/api/images/* �?GET 请求提前短路，不�?body
-        // 原因：部�?Node 版本�?await new Promise 在无 body GET 上可能阻�?
-        // �?Node.js 原生请求构造标�?Web Request
+        // 灏?/api/images/* 鐨?GET 璇锋眰鎻愬墠鐭矾锛屼笉璇?body
+        // 鍘熷洜锛氶儴鍒?Node 鐗堟湰涓?await new Promise 鍦ㄦ棤 body GET 涓婂彲鑳介樆濉?        // 浠?Node.js 鍘熺敓璇锋眰鏋勯€犳爣鍑?Web Request
         const url = `http://localhost${req.url}`
         const headers = new Headers()
         for (const [k, v] of Object.entries(req.headers)) {
@@ -1647,7 +1446,7 @@ export function notionApiPlugin(): Plugin {
           else if (Array.isArray(v)) headers.set(k, v.join(', '))
         }
 
-        // 只在有请求体时才读取（POST/PUT/PATCH），GET/HEAD/DELETE 立即构�?Request
+        // 鍙湪鏈夎姹備綋鏃舵墠璇诲彇锛圥OST/PUT/PATCH锛夛紝GET/HEAD/DELETE 绔嬪嵆鏋勯€?Request
         let body: string | undefined
         if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'DELETE') {
           const chunks: Buffer[] = []
@@ -1666,43 +1465,14 @@ export function notionApiPlugin(): Plugin {
           body: body || undefined,
         })
 
-        // 分发请求 �?写回响应
+        // 鍒嗗彂璇锋眰 鈫?鍐欏洖鍝嶅簲
         try {
           const response = await handleRequest(request)
           _res.statusCode = response.status
           response.headers.forEach((value, key) => {
             _res.setHeader(key, value)
           })
-
-          // SSE 响应：直�?pipe ReadableStream，禁用缓�?
-          if (response.headers.get('Content-Type') === 'text/event-stream') {
-            const reader = response.body!.getReader()
-            const decoder = new TextDecoder()
-            const pump = async () => {
-              try {
-                while (true) {
-                  const { done, value } = await reader.read()
-                  if (done) {
-                    _res.end()
-                    break
-                  }
-                  // 立即写入 + flush，不使用缓冲
-                  const chunk = typeof value === 'string' ? value : decoder.decode(value, { stream: true })
-                  _res.write(chunk)
-                  // 强制 flush 到底�?socket
-                  if (typeof (_res as unknown as { flushHeaders?: () => void }).flushHeaders === 'function') {
-                    ;(_res as unknown as { flush: () => void }).flush?.()
-                  }
-                }
-              } catch {
-                _res.end()
-              }
-            }
-            pump()
-            return
-          }
-
-          // 普通响应：收集全部后一次性发�?
+          // 浣跨敤 arrayBuffer 鏀寔浜岃繘鍒跺搷搴旓紙鍥剧墖绛夛級
           const resBody = await response.arrayBuffer()
           _res.end(Buffer.from(resBody))
         } catch (e) {
