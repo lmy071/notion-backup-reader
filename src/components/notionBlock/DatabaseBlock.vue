@@ -553,7 +553,16 @@ async function handleImport(file: File) {
       importLogs.value.push({ level: 'warn', message: e.message, column: e.column, time: Date.now() })
     }
 
-    // 4. 构建已有 title 集合
+    // 4. 检测 Excel 是否有 id 列（不区分大小写），用于优先 ID 匹配
+    const idColumnKey = headers.find(h => h.toLowerCase() === 'id')
+    const existingIds = new Set<string>()
+    if (idColumnKey) {
+      for (const dbRow of database.value.rows) {
+        existingIds.add(dbRow.id.toLowerCase())
+      }
+    }
+
+    // 5. 构建已有 title 集合
     const existingTitles = new Set<string>()
     for (const row of database.value.rows) {
       const titleKey = schema.titleKey
@@ -565,12 +574,15 @@ async function handleImport(file: File) {
       }
     }
 
-    // 5. 行校验
+    // 6. 行校验（优先 ID 列匹配，其次 title 匹配）
     importLogs.value.push({ level: 'info', message: '正在校验数据...', time: Date.now() })
-    const rowLogs = validateRows(rows, schema, existingTitles)
+    const rowLogs = validateRows(rows, schema, existingTitles, {
+      idColumnKey,
+      existingIds,
+    })
     importLogs.value.push(...rowLogs)
 
-    // 6. 统计
+    // 7. 统计
     const errors = importLogs.value.filter(l => l.level === 'error' && l.row)
     const skips = importLogs.value.filter(l => l.level === 'skip')
     const updates = importLogs.value.filter(l => l.level === 'update')
@@ -599,13 +611,15 @@ async function handleImport(file: File) {
       return
     }
 
-    // 7. 逐行处理（新增 + 更新）
+    // 8. 逐行处理（新增 + 更新）
     importProgress.value = { done: 0, total: toProcess.length }
     importLogs.value.push({ level: 'info', message: `开始处理 ${toProcess.length} 条数据（新增 ${toCreate.length}, 更新 ${toUpdate.length}）...`, time: Date.now() })
 
-    // 构建 title → pageId 映射（用于更新时查找已有页面 ID）
+    // 构建 ID → pageId 映射（优先）和 title → pageId 映射（兜底）
+    const idToPageId = new Map<string, string>()
     const titleToPageId = new Map<string, string>()
     for (const dbRow of database.value.rows) {
+      idToPageId.set(dbRow.id.toLowerCase(), dbRow.id)
       const val = dbRow.properties[schema.titleKey]
       if (val?.type === 'title') {
         const t = val.title?.map(t => t.plain_text).join('') ?? ''
@@ -689,8 +703,10 @@ async function handleImport(file: File) {
 
       let res: { ok: boolean; error?: string }
       if (isUpdate) {
-        // 更新已有页面
-        const pageId = titleToPageId.get(titleValue)
+        // 更新已有页面：优先用 ID 列查找，其次用 title
+        const excelId = idColumnKey ? (row[idColumnKey] || '').trim() : ''
+        let pageId = excelId ? idToPageId.get(excelId.toLowerCase()) : undefined
+        if (!pageId) pageId = titleToPageId.get(titleValue)
         if (!pageId) {
           importLogs.value.push({
             level: 'error',

@@ -300,11 +300,15 @@ export function validateColumns(
 /**
  * 全面检查每行数据的合法性。
  * 返回错误日志列表，行号从 1 起（Excel 第 2 行 = row 1）。
+ *
+ * @param options.idColumnKey  Excel 中用作主键的列名（如 "id"），不区分大小写匹配
+ * @param options.existingIds  数据库中已有的 ID 集合（小写），用于去重
  */
 export function validateRows(
   rows: Record<string, string>[],
   schema: DbSchema,
   existingTitles: Set<string>,
+  options?: { idColumnKey?: string; existingIds?: Set<string> },
 ): ImportLog[] {
   const logs: ImportLog[] = []
 
@@ -335,21 +339,32 @@ export function validateRows(
       continue
     }
 
-    // 检查是否已存在（增量跳过 or 更新）
-    if (existingTitles.has(titleValue)) {
+    // 检查是否已存在（优先 ID 列匹配，其次 title 匹配）
+    // ID 列不区分大小写
+    const idKey = options?.idColumnKey
+    const existingIds = options?.existingIds
+    const idValue = idKey ? (row[idKey] || '').trim() : ''
+    const idMatch = idKey && existingIds && idValue
+      ? existingIds.has(idValue.toLowerCase())
+      : false
+    const titleMatch = existingTitles.has(titleValue)
+
+    if (idMatch || titleMatch) {
       // 检查"更新"列是否有值，有值则标记为 update，否则跳过
       const updateCol = row['更新']
       if (updateCol && String(updateCol).trim()) {
+        const matchInfo = idMatch ? ` (ID: ${idValue})` : ''
         logs.push({
           level: 'update',
-          message: `"${titleValue}" 标记为更新`,
+          message: `"${titleValue}"${matchInfo} 标记为更新`,
           row: rowNum,
           time: Date.now(),
         })
       } else {
+        const matchInfo = idMatch ? ' (ID 匹配)' : ''
         logs.push({
           level: 'skip',
-          message: `"${titleValue}" 已存在，跳过`,
+          message: `"${titleValue}" 已存在${matchInfo}，跳过`,
           row: rowNum,
           time: Date.now(),
         })
