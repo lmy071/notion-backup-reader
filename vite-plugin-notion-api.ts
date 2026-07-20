@@ -62,14 +62,16 @@ async function readJsonSafe(filePath: string): Promise<unknown> {
 function normalizeDatabase(raw: unknown): Record<string, unknown> {
   const r = raw as Record<string, unknown>
   const schema = (r.schema || {}) as Record<string, unknown>
+  const results = Array.isArray(r.results) ? r.results : []
   return {
     id: r.databaseId ?? r.id ?? '',
     title: (r.title as string) ?? '',
     properties: schema.properties ?? {},
-    rows: (Array.isArray(r.results) ? r.results.map((row: Record<string, unknown>) => ({
+    rows: results.map((row: Record<string, unknown>) => ({
       id: row.id ?? '',
       properties: row.properties ?? {},
-    })) : []),
+      blocks: Array.isArray(row.blocks) ? row.blocks : undefined,
+    })),
   }
 }
 
