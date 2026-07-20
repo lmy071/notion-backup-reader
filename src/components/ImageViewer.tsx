@@ -1,4 +1,5 @@
 import { ref, defineComponent, onMounted, onUnmounted } from 'vue'
+import './ImageViewer.css'
 
 export default defineComponent({
   props: {
@@ -11,9 +12,21 @@ export default defineComponent({
     const isDragging = ref(false)
     const dragStart = ref({ x: 0, y: 0 })
     const posStart = ref({ x: 0, y: 0 })
+    const hasMoved = ref(false)
+    const longPressTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+    const isLongPress = ref(false)
 
     const MIN_SCALE = 0.2
     const MAX_SCALE = 10
+    const LONG_PRESS_MS = 300
+    const MOVE_THRESHOLD = 3
+
+    function cancelLongPress() {
+      if (longPressTimer.value) {
+        clearTimeout(longPressTimer.value)
+        longPressTimer.value = null
+      }
+    }
 
     function onWheel(e: WheelEvent) {
       e.preventDefault()
@@ -26,26 +39,53 @@ export default defineComponent({
     }
 
     function onMouseDown(e: MouseEvent) {
-      if (scale.value <= 1 || e.button !== 0) return
+      // Only activate drag when zoomed in
+      if (scale.value <= 1) return
+      if (e.button !== 0) return
       e.preventDefault()
-      isDragging.value = true
-      dragStart.value = { x: e.clientX, y: e.clientY }
+
+      const startX = e.clientX
+      const startY = e.clientY
+      dragStart.value = { x: startX, y: startY }
       posStart.value = { ...position.value }
+      hasMoved.value = false
+
+      // Start long-press timer: activate drag after hold
+      longPressTimer.value = setTimeout(() => {
+        isLongPress.value = true
+        isDragging.value = true
+      }, LONG_PRESS_MS)
     }
 
     function onMouseMove(e: MouseEvent) {
+      const dx = e.clientX - dragStart.value.x
+      const dy = e.clientY - dragStart.value.y
+
+      // Track if mouse moved beyond threshold (to distinguish drag from click)
+      if (Math.abs(dx) > MOVE_THRESHOLD || Math.abs(dy) > MOVE_THRESHOLD) {
+        hasMoved.value = true
+      }
+
       if (!isDragging.value) return
+
       position.value = {
-        x: posStart.value.x + (e.clientX - dragStart.value.x),
-        y: posStart.value.y + (e.clientY - dragStart.value.y),
+        x: posStart.value.x + dx,
+        y: posStart.value.y + dy,
       }
     }
 
     function onMouseUp() {
+      cancelLongPress()
       isDragging.value = false
+      isLongPress.value = false
     }
 
     function onBackdropClick(e: MouseEvent) {
+      // Don't close if we just finished a drag
+      if (hasMoved.value || isLongPress.value) {
+        hasMoved.value = false
+        return
+      }
       if (e.target === e.currentTarget) {
         emit('close')
       }
@@ -79,6 +119,7 @@ export default defineComponent({
     onUnmounted(() => {
       document.removeEventListener('keydown', onKeydown)
       document.body.style.overflow = ''
+      cancelLongPress()
     })
 
     return () => (
@@ -86,6 +127,7 @@ export default defineComponent({
         class="image-viewer-backdrop"
         onClick={onBackdropClick}
         onWheel={onWheel}
+        onMousedown={onMouseDown}
         onMousemove={onMouseMove}
         onMouseup={onMouseUp}
         onMouseleave={onMouseUp}
@@ -110,9 +152,11 @@ export default defineComponent({
           class="image-viewer-img"
           style={{
             transform: `translate(${position.value.x}px, ${position.value.y}px) scale(${scale.value})`,
-            cursor: scale.value > 1 ? (isDragging.value ? 'grabbing' : 'grab') : 'default',
+            cursor: scale.value > 1
+              ? (isDragging.value ? 'grabbing' : 'grab')
+              : 'default',
+            transition: isDragging.value ? 'none' : undefined,
           }}
-          onMousedown={onMouseDown}
           draggable={false}
         />
       </div>
