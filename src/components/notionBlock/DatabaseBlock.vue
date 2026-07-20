@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch, type Ref } from 'vue'
-import type { NotionBlock, NotionDatabase, DatabasePropertyValue, NotionDatabaseRow, DatabasePropertyConfig } from '@/types/notion'
+import type { NotionBlock, NotionDatabase, DatabasePropertyValue, NotionDatabaseRow, DatabasePropertyConfig, NotionPage } from '@/types/notion'
 import { storage } from '@/services/storage'
+import { createMcpClient } from '@/services/mcp'
+import { parseBlock } from '../../notion-parser/index'
 import { useConfigStore } from '@/stores/config'
+import NotionRenderer from './NotionRenderer.vue'
 import {
   parseExcelFile,
   buildDbSchema,
@@ -30,6 +33,9 @@ const error = ref<string | null>(null)
 // Drawer state
 const drawerOpen = ref(false)
 const selectedRowId = ref<string | null>(null)
+const rowPageLoading = ref(false)
+const rowPageBlocks = ref<NotionBlock[]>([])
+const rowPageError = ref<string | null>(null)
 
 // Import state
 const configStore = useConfigStore()
@@ -193,14 +199,55 @@ function getCellText(val: DatabasePropertyValue | undefined): string {
   }
 }
 
-function openDrawer(rowId: string) {
+async function openDrawer(rowId: string) {
   selectedRowId.value = rowId
   drawerOpen.value = true
+  // 加载行页面的正文内容
+  await loadRowPageContent(rowId)
 }
 
 function closeDrawer() {
   drawerOpen.value = false
   selectedRowId.value = null
+  rowPageBlocks.value = []
+  rowPageError.value = null
+}
+
+async function loadRowPageContent(rowId: string) {
+  const rid = readerRootPageId?.value
+  const d = readerDate?.value
+  if (!rid || !d) return
+
+  rowPageLoading.value = true
+  rowPageError.value = null
+  rowPageBlocks.value = []
+
+  try {
+    // 1. 先尝试从本地 JSON 加载
+    const result = await storage.getPage(rid, d, rowId)
+    if (result?.page?.blocks) {
+      rowPageBlocks.value = result.page.blocks
+      return
+    }
+
+    // 2. 回退到 Notion API 在线获取
+    const apiKey = configStore.apiKey
+    if (!apiKey) {
+      rowPageError.value = '未配置 API Key，无法加载正文'
+      return
+    }
+    const client = createMcpClient(apiKey)
+    const resp = await client.fetchBlockChildren(rowId, undefined)
+    if (resp?.results && Array.isArray(resp.results) && resp.results.length > 0) {
+      rowPageBlocks.value = resp.results.map((b: Record<string, unknown>) => parseBlock(b as NotionBlock))
+    } else {
+      rowPageError.value = '正文为空'
+    }
+  } catch (e) {
+    rowPageError.value = e instanceof Error ? e.message : '加载正文失败'
+  } finally {
+    rowPageLoading.value = false
+  }
 }
 
 function formatTime(iso: string | undefined): string {
@@ -1070,6 +1117,20 @@ async function handleImport(file: File) {
                   </dd>
                 </div>
               </dl>
+
+              <!-- 行页面正文内容 -->
+              <div v-if="rowPageLoading" class="text-sm text-center py-4" style="color: var(--c-text-tertiary)">
+                加载正文中...
+              </div>
+              <div v-else-if="rowPageError" class="text-sm text-center py-4" style="color: var(--c-text-tertiary)">
+                {{ rowPageError }}
+              </div>
+              <div v-else-if="rowPageBlocks.length > 0" class="mt-4 pt-4" style="border-top: 2px solid var(--c-border)">
+                <h3 class="text-xs font-semibold uppercase tracking-wide mb-3" style="color: var(--c-text-tertiary)">正文内容</h3>
+                <div class="row-page-content">
+                  <NotionRenderer :blocks="rowPageBlocks" />
+                </div>
+              </div>
             </template>
             <div v-else class="text-sm text-center py-8" style="color: var(--c-text-tertiary)">
               未选择行
@@ -1106,5 +1167,10 @@ async function handleImport(file: File) {
 .drawer-slide-enter-from,
 .drawer-slide-leave-to {
   transform: translateX(100%);
+}
+
+/* 行详情抽屉内的页面正文渲染 */
+.row-page-content :deep(.notion-block) {
+  font-size: 0.875rem;
 }
 </style>
