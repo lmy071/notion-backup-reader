@@ -43,7 +43,7 @@ export function useHomeLogic() {
   // 最终展示的根分组列表（每个 root 只显示根页面本身一张卡片）
   const roots = computed<RootGroup[]>(() => {
     const datesByRoot = allDatesByRoot.value
-    return Object.keys(datesByRoot).map(rootId => {
+    const groups: RootGroup[] = Object.keys(datesByRoot).map(rootId => {
       const availableDates = datesByRoot[rootId]
       const sel = selectedDates.value[rootId] ?? availableDates[0] ?? ''
 
@@ -65,6 +65,10 @@ export function useHomeLogic() {
         rootPage,
       }
     })
+
+    // 按最新备份日期降序排序
+    groups.sort((a, b) => (b.availableDates[0] ?? '').localeCompare(a.availableDates[0] ?? ''))
+    return groups
   })
 
   function selectDate(rootPageId: string, date: string) {
