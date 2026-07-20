@@ -70,7 +70,11 @@ function normalizeDatabase(raw: unknown): Record<string, unknown> {
     rows: results.map((row: Record<string, unknown>) => ({
       id: row.id ?? '',
       properties: row.properties ?? {},
-      blocks: Array.isArray(row.blocks) ? row.blocks : undefined,
+      blocks: Array.isArray(row.blocks)
+        ? (row.blocks as Array<Record<string, unknown>>).map(b =>
+            b.object && b.type ? normalizeBlock(b) : b
+          )
+        : undefined,
     })),
   }
 }
@@ -355,6 +359,17 @@ async function handleRequest(req: Request): Promise<Response> {
     const pageDir = join(JSON_DIR, rootPageId, date, pageId)
     const page = await readJsonSafe(join(pageDir, 'page.json'))
     if (!page) return jsonResponse(null, 404)
+
+    // 兼容旧数据：确保 blocks 是扁平化格式
+    if (page.blocks && Array.isArray(page.blocks)) {
+      page.blocks = page.blocks.map((b: unknown) => {
+        const block = b as Record<string, unknown>
+        if (block.object && block.type) {
+          return normalizeBlock(block)
+        }
+        return block
+      })
+    }
 
     // 读取子页面（children 目录�?
     const children: Record<string, unknown> = {}
@@ -1008,6 +1023,21 @@ function snkTask(ctrl: ReadableStreamDefaultController, task: Record<string, unk
   ctrl.enqueue(new TextEncoder().encode(sseEvent('task', task)))
 }
 
+/** 将 Notion API 原始 block 扁平化为前端渲染格式 */
+function normalizeBlock(raw: Record<string, unknown>): Record<string, unknown> {
+  const type = raw.type as string
+  const content = (raw[type] || {}) as Record<string, unknown>
+  return {
+    id: raw.id,
+    type,
+    ...content,
+    has_children: raw.has_children,
+    children: Array.isArray(raw.children)
+      ? (raw.children as Array<Record<string, unknown>>).map(normalizeBlock)
+      : undefined,
+  }
+}
+
 // ── POST /api/sync/sse 路由分发 ──
 
 async function handleSyncSSE(req: Request): Promise<Response> {
@@ -1128,11 +1158,12 @@ async function handleSyncSSE(req: Request): Promise<Response> {
             task({ pageId, title, status: 'fetching', progress: 50 })
 
             const rawBlocks = (blocksRes || []) as Array<Record<string, unknown>>
+            const normalizedBlocks = rawBlocks.map(normalizeBlock)
 
             const rawPage = {
               pageId: pageData.id as string || pageId,
               title,
-              blocks: rawBlocks,
+              blocks: normalizedBlocks,
               rawPageData: pageData,
             }
 
@@ -1144,11 +1175,10 @@ async function handleSyncSSE(req: Request): Promise<Response> {
 
             // Phase 3: fetch databases
             const databases: Array<{ databaseId: string; database: Record<string, unknown> }> = []
-            for (const rawBlock of rawBlocks) {
-              const b = rawBlock as Record<string, unknown>
-              if (b.type === 'child_database') {
-                const dbId = b.id as string
-                const dbTitle = ((b as { child_database?: { title?: string } }).child_database?.title as string) || dbId
+            for (const block of normalizedBlocks) {
+              if (block.type === 'child_database') {
+                const dbId = block.id as string
+                const dbTitle = (block.title as string) || dbId
                 try {
                   await log(`🗄 获取数据库: ${dbTitle}\n`)
                   const [schemaRes, queryRes] = await Promise.all([
@@ -1160,14 +1190,35 @@ async function handleSyncSSE(req: Request): Promise<Response> {
                   if (schemaRes.ok && queryRes.ok) {
                     const schema = await schemaRes.json() as Record<string, unknown>
                     const query = await queryRes.json() as Record<string, unknown>
+                    const dbResults = (query as { results?: unknown }).results as Array<Record<string, unknown>> ?? []
                     const db = {
                       databaseId: dbId,
                       title: dbTitle,
                       schema: schema,
-                      results: (query as { results?: unknown }).results ?? [],
+                      results: dbResults,
                     }
+
+                    if (dbResults.length > 0) {
+                      await log(`📝 拉取 ${dbResults.length} 行的正文内容...\n`)
+                      let rowsWithContent = 0
+                      for (const row of dbResults) {
+                        try {
+                          await delay(Math.max(minInterval, 350))
+                          const rowBlocks = await fetchBlocks(row.id as string, commonHeaders)
+                          if (rowBlocks && Array.isArray(rowBlocks) && rowBlocks.length > 0) {
+                            row.blocks = rowBlocks.map(normalizeBlock)
+                            rowsWithContent++
+                          }
+                        } catch (e) {
+                          const errMsg = e instanceof Error ? e.message : String(e)
+                          await log(`⚠️ 行正文拉取失败 (${(row.id as string).slice(0, 8)}): ${errMsg}\n`)
+                        }
+                      }
+                      await log(`✅ 正文拉取完成 (${rowsWithContent}/${dbResults.length} 行有内容)\n`)
+                    }
+
                     databases.push({ databaseId: dbId, database: db })
-                    await log(`✅ 数据库获取完成 (${Array.isArray(db.results) ? db.results.length : 0} 条记录)\n`)
+                    await log(`✅ 数据库获取完成 (${dbResults.length} 条记录)\n`)
                   }
                 } catch (e) {
                   await log(`⚠️ 数据库获取失败: ${e instanceof Error ? e.message : String(e)}\n`)
@@ -1181,14 +1232,12 @@ async function handleSyncSSE(req: Request): Promise<Response> {
 
             // Phase 4: detect children
             const children: Array<{ blockId: string; type: string; title: string }> = []
-            for (const rawBlock of rawBlocks) {
-              const b = rawBlock as Record<string, unknown>
-              if ((b.type as string) === 'child_page' || (b.type as string) === 'child_database') {
-                const data = b[(b.type as string)] as Record<string, unknown> | undefined
+            for (const block of normalizedBlocks) {
+              if (block.type === 'child_page' || block.type === 'child_database') {
                 children.push({
-                  blockId: b.id as string,
-                  type: b.type as string,
-                  title: (data?.title as string) || (b.id as string),
+                  blockId: block.id as string,
+                  type: block.type as string,
+                  title: (block.title as string) || (block.id as string),
                 })
               }
             }
