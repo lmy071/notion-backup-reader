@@ -206,14 +206,19 @@ function extractExternalUrls(s: string): string[] {
 }
 
 /**
- * 深度遍历 JSON，将所有外部图�?URL 下载到本�?images/{rootPageId}/ 目录�?
- * 并替换为本地路径 `/api/images/{rootPageId}/{hash}.{ext}`�?
+ * 深度遍历 JSON，将所有外部图⽚URL 下载到本地 images/{rootPageId}/ 目录，
+ * 并替换为本地路径 `/api/images/{rootPageId}/{hash}.{ext}`。
+ * @param onDownload 每下载成功一张图⽚时触发，参数为 (remoteUrl, localPath)
  */
-async function downloadAndReplaceImages(data: unknown, rootPageId: string): Promise<void> {
+async function downloadAndReplaceImages(
+  data: unknown,
+  rootPageId: string,
+  onDownload?: (remoteUrl: string, localPath: string) => void,
+): Promise<void> {
   if (!data || typeof data !== 'object') return
 
   if (Array.isArray(data)) {
-    for (const item of data) await downloadAndReplaceImages(item, rootPageId)
+    for (const item of data) await downloadAndReplaceImages(item, rootPageId, onDownload)
     return
   }
 
@@ -221,9 +226,9 @@ async function downloadAndReplaceImages(data: unknown, rootPageId: string): Prom
   for (const key of Object.keys(obj)) {
     const val = obj[key]
     if (typeof val === 'string' && matchesExternalUrl(val)) {
-      obj[key] = await replaceUrlsInString(val, rootPageId)
+      obj[key] = await replaceUrlsInString(val, rootPageId, onDownload)
     } else if (typeof val === 'object') {
-      await downloadAndReplaceImages(val, rootPageId)
+      await downloadAndReplaceImages(val, rootPageId, onDownload)
     }
   }
 }
@@ -231,12 +236,19 @@ async function downloadAndReplaceImages(data: unknown, rootPageId: string): Prom
 /**
  * 替换字符串中的所有外部文�?URL 为本地路径�?
  */
-async function replaceUrlsInString(str: string, rootPageId: string): Promise<string> {
+async function replaceUrlsInString(
+  str: string,
+  rootPageId: string,
+  onDownload?: (remoteUrl: string, localPath: string) => void,
+): Promise<string> {
   const urls = extractExternalUrls(str)
   let result = str
   for (const url of urls) {
     const localPath = await downloadImage(url, rootPageId)
-    if (localPath) result = result.replace(url, localPath)
+    if (localPath) {
+      result = result.replace(url, localPath)
+      onDownload?.(url, localPath)
+    }
   }
   return result
 }
@@ -1315,8 +1327,10 @@ async function handleSyncSSE(req: Request): Promise<Response> {
           await log('💾 开始保存同步结果...\n')
 
           // 下载图片
-          await log('🖼 下载远程图片...\n')
-          await downloadAndReplaceImages(collected, rootPageId)
+          await log('🖼 开始下载远程图片...\n')
+          await downloadAndReplaceImages(collected, rootPageId, (remoteUrl, localPath) => {
+            log(`🖼 图片已下载: ${localPath}\n`)
+          })
           await log('🖼 图片下载完成\n')
 
           // 逐页写入
