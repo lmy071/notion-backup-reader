@@ -3,8 +3,12 @@ import { createMcpClient, type FetchPageResponse } from './mcp'
 import { storage } from './storage'
 import { logger } from './logger'
 import { createConcurrencyController } from './concurrency'
-import { parsePage, parseDatabase } from '../../notion-parser/index'
+import { parsePage, parseDatabase, parseBlock } from '../../notion-parser/index'
 import type { RawBlock, RawPage } from '../../notion-parser/types'
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+const delay = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
 // ── Progress types ─────────────────────────────────────────────────
 
@@ -274,6 +278,25 @@ async function syncOnePage(
             properties: (schema as { properties?: Record<string, unknown> }).properties ?? {},
             results: (dbRes.results ?? []) as unknown[],
           })
+
+          // ── 拉取每行页面的正文 blocks ──
+          logger.info({ action: 'db_fetch', pageId, dbId: dbBlockId, message: `开始拉取 ${db.rows.length} 行的正文内容...` })
+          let rowsWithContent = 0
+          for (const row of db.rows) {
+            try {
+              await delay(config.requestDelay)
+              const blocksResp = await client.fetchBlockChildren(row.id, undefined)
+              if (blocksResp?.results && Array.isArray(blocksResp.results) && blocksResp.results.length > 0) {
+                row.blocks = blocksResp.results.map((b: Record<string, unknown>) => parseBlock(b as NotionBlock))
+                rowsWithContent++
+              }
+            } catch (e) {
+              // 单行 blocks 拉取失败不影响整体
+              logger.warn({ action: 'db_fetch', pageId, dbId: dbBlockId, rowId: row.id, message: `行正文拉取失败: ${e instanceof Error ? e.message : String(e)}` })
+            }
+          }
+          logger.info({ action: 'db_fetch', pageId, dbId: dbBlockId, message: `正文拉取完成 (${rowsWithContent}/${db.rows.length} 行有内容)` })
+
           databases.push({ databaseId: dbBlockId, database: db })
           logger.info({ action: 'db_fetch', pageId, dbId: dbBlockId, message: `数据库获取完成 (${db.rows.length} 行)` })
         } catch (e) {

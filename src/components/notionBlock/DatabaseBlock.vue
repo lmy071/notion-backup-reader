@@ -223,14 +223,22 @@ async function loadRowPageContent(rowId: string) {
   rowPageBlocks.value = []
 
   try {
-    // 1. 先尝试从本地 JSON 加载
+    // 1. 先从当前行数据的 blocks 字段取（同步时已写入）
+    const row = database.value?.rows.find(r => r.id === rowId)
+    if (row?.blocks && row.blocks.length > 0) {
+      rowPageBlocks.value = row.blocks
+      rowPageLoading.value = false
+      return
+    }
+
+    // 2. 尝试从本地 JSON 加载（可能曾作为独立页面同步）
     const result = await storage.getPage(rid, d, rowId)
     if (result?.page?.blocks && result.page.blocks.length > 0) {
       rowPageBlocks.value = result.page.blocks
       return
     }
 
-    // 2. 回退到 Notion API 在线获取
+    // 3. 回退到 Notion API 在线获取
     const apiKey = configStore.apiKey
     if (!apiKey) {
       // 无 API Key → 静默，不展示正文区
