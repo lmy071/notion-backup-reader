@@ -11,7 +11,7 @@ export function useSyncLogic() {
   const overallProgress = ref(0)
   const logMessages = ref<string[]>([])
   const taskMap = ref<Map<string, SyncTaskStatus>>(new Map())
-  const { items: historyList, cleanupStaleEntries } = usePageHistory()
+  const { items: historyList, addOrUpdate, cleanupStaleEntries } = usePageHistory()
 
   cleanupStaleEntries()
 
@@ -123,6 +123,13 @@ export function useSyncLogic() {
                 : 0
             },
             onDone() {
+              // 同步完成后更新页面历史
+              for (const [pageId, task] of taskMap.value) {
+                if (task.status === 'done') {
+                  addOrUpdate({ id: pageId, title: task.title, lastSync: new Date().toISOString() })
+                }
+              }
+              cleanupStaleEntries()
               resolve()
             },
             onError(msg) {
