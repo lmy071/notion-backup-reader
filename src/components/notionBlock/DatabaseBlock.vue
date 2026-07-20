@@ -225,7 +225,7 @@ async function loadRowPageContent(rowId: string) {
   try {
     // 1. 先尝试从本地 JSON 加载
     const result = await storage.getPage(rid, d, rowId)
-    if (result?.page?.blocks) {
+    if (result?.page?.blocks && result.page.blocks.length > 0) {
       rowPageBlocks.value = result.page.blocks
       return
     }
@@ -233,16 +233,15 @@ async function loadRowPageContent(rowId: string) {
     // 2. 回退到 Notion API 在线获取
     const apiKey = configStore.apiKey
     if (!apiKey) {
-      rowPageError.value = '未配置 API Key，无法加载正文'
+      // 无 API Key → 静默，不展示正文区
       return
     }
     const client = createMcpClient(apiKey)
     const resp = await client.fetchBlockChildren(rowId, undefined)
     if (resp?.results && Array.isArray(resp.results) && resp.results.length > 0) {
       rowPageBlocks.value = resp.results.map((b: Record<string, unknown>) => parseBlock(b as NotionBlock))
-    } else {
-      rowPageError.value = '正文为空'
     }
+    // 空 blocks → 不展示正文区，静默
   } catch (e) {
     rowPageError.value = e instanceof Error ? e.message : '加载正文失败'
   } finally {
