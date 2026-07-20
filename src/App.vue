@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
-import ImageViewer from '@/components/ImageViewer.vue'
+import ImageViewer from '@/components/ImageViewer.tsx'
 import { useImageViewer } from '@/composables/useImageViewer'
 
 const { visible, src, close } = useImageViewer()
