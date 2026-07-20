@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { NotionBlock, RichText } from '@/types/notion'
+import { useImageViewer } from '@/composables/useImageViewer'
 
 const props = defineProps<{
   block: NotionBlock
@@ -7,11 +8,17 @@ const props = defineProps<{
 
 const url = (props.block as { url?: string }).url ?? ''
 const caption = (props.block as { caption?: RichText[] }).caption ?? []
+const { open } = useImageViewer()
+
+function openViewer() {
+  if (!url) return
+  open(url)
+}
 </script>
 
 <template>
   <div class="my-4">
-    <div v-if="url" class="rounded-lg overflow-hidden" style="border: 1px solid var(--c-callout-border)">
+    <div v-if="url" class="rounded-lg overflow-hidden cursor-zoom-in" style="border: 1px solid var(--c-callout-border)" @click="openViewer">
       <img :src="url" alt="Notion image" class="w-full block" loading="lazy" />
     </div>
     <div

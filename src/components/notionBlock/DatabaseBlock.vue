@@ -5,6 +5,7 @@ import { storage } from '@/services/storage'
 import { createMcpClient } from '@/services/mcp'
 import { parseBlock } from '../../../notion-parser/index'
 import { useConfigStore } from '@/stores/config'
+import { useImageViewer } from '@/composables/useImageViewer'
 import NotionRenderer from './NotionRenderer.vue'
 import {
   parseExcelFile,
@@ -151,6 +152,8 @@ function getFilesList(val: DatabasePropertyValue | undefined): Array<{ name: str
 function isImageFile(name: string): boolean {
   return /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)$/i.test(name)
 }
+
+const { open: openImageViewer } = useImageViewer()
 
 // Extract cell text by property type (text-only, no HTML)
 function getCellText(val: DatabasePropertyValue | undefined): string {
@@ -981,18 +984,17 @@ async function handleImport(file: File) {
                 <!-- files type: show thumbnails -->
                 <template v-if="getColumnType(col.key) === 'files'">
                   <div class="flex items-center gap-1.5">
-                    <a
+                    <div
                       v-for="(f, fi) in getFilesList(row.properties[col.key])"
                       :key="fi"
-                      :href="f.url"
-                      target="_blank"
-                      class="block rounded border overflow-hidden shrink-0 cursor-pointer"
+                      class="block rounded border overflow-hidden shrink-0"
                       :style="{
                         width: '40px',
                         height: '40px',
                         borderColor: 'var(--c-border)',
+                        cursor: isImageFile(f.name) ? 'zoom-in' : 'pointer',
                       }"
-                      @click.stop
+                      @click="isImageFile(f.name) ? openImageViewer(f.url) : window.open(f.url, '_blank')"
                     >
                       <img
                         v-if="isImageFile(f.name)"
@@ -1008,7 +1010,7 @@ async function handleImport(file: File) {
                       >
                         📄
                       </div>
-                    </a>
+                    </div>
                   </div>
                 </template>
                 <!-- other types: plain text -->
@@ -1085,17 +1087,17 @@ async function handleImport(file: File) {
                     <!-- files type: show images in drawer -->
                     <template v-if="getColumnType(col.key) === 'files'">
                       <div class="flex flex-wrap gap-2">
-                        <a
+                        <div
                           v-for="(f, fi) in getFilesList(selectedRow!.properties[col.key])"
                           :key="fi"
-                          :href="f.url"
-                          target="_blank"
                           class="block rounded border overflow-hidden"
                           :style="{
                             width: isImageFile(f.name) ? '120px' : '40px',
                             height: isImageFile(f.name) ? '120px' : '40px',
                             borderColor: 'var(--c-border)',
+                            cursor: isImageFile(f.name) ? 'zoom-in' : 'pointer',
                           }"
+                          @click="isImageFile(f.name) ? openImageViewer(f.url) : window.open(f.url, '_blank')"
                         >
                           <img
                             v-if="isImageFile(f.name)"
@@ -1111,7 +1113,7 @@ async function handleImport(file: File) {
                           >
                             📄
                           </div>
-                        </a>
+                        </div>
                       </div>
                       <div class="text-xs mt-1" style="color: var(--c-text-tertiary)">
                         {{ getCellText(selectedRow!.properties[col.key]) }}

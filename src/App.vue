@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
+import ImageViewer from '@/components/ImageViewer.vue'
+import { useImageViewer } from '@/composables/useImageViewer'
+
+const { visible, src, close } = useImageViewer()
 </script>
 
 <template>
+  <ImageViewer v-if="visible" :src="src" @close="close" />
   <div class="h-100vh flex flex-col relative" style="background-color: transparent">
     <!-- 半透明遮罩层 -->
     <div
