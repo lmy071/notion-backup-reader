@@ -3,7 +3,7 @@ import { ref, computed, inject, watch, type Ref } from 'vue'
 import type { NotionBlock, NotionDatabase, DatabasePropertyValue, NotionDatabaseRow, DatabasePropertyConfig, NotionPage } from '@/types/notion'
 import { storage } from '@/services/storage'
 import { createMcpClient } from '@/services/mcp'
-import { parseBlock } from '../../notion-parser/index'
+import { parseBlock } from '../../../notion-parser/index'
 import { useConfigStore } from '@/stores/config'
 import NotionRenderer from './NotionRenderer.vue'
 import {
