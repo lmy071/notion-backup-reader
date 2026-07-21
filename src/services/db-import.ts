@@ -113,17 +113,27 @@ export async function parseExcelFile(file: File): Promise<ParsedExcel> {
   })
 
   const rows: Record<string, string>[] = []
+  let prevRow: Record<string, string> = {}
   for (let r = 2; r <= ws.lastRow.number; r++) {
     const row: Record<string, string> = {}
     const excelRow = ws.getRow(r)
     headers.forEach((header, ci) => {
       const cell = excelRow.getCell(ci + 1)
       // 公式单元格（type 6）取 formula/result，否则取普通值
-      row[header] = cell.type === 6 && (cell.formula || cell.result)
-        ? String(cell.formula || cell.result)
-        : String(cell.value ?? '').trim()
+      let val: string
+      if (cell.type === 6 && (cell.formula || cell.result)) {
+        val = String(cell.formula || cell.result)
+      } else {
+        val = String(cell.value ?? '').trim()
+      }
+      // 合并单元格回填：当前格为空时用上一行的值填充
+      if (!val && prevRow[header]) {
+        val = prevRow[header]
+      }
+      row[header] = val
     })
     rows.push(row)
+    prevRow = row
   }
 
   // ── 提取嵌入图片 ────────────────────────────────────────
