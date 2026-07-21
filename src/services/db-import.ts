@@ -643,8 +643,8 @@ export async function updateDatabasePage(
 export async function uploadImageForImport(
   image: BufferedImage,
 ): Promise<string | null> {
-  // 用时间戳+随机数生成唯一文件名，避免 Gitee 同名文件冲突
-  const uniqueId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  // 用时间戳生成唯一文件名，避免 Gitee 同名文件冲突
+  const uniqueId = Date.now()
   const blob = new Blob([image.buffer], { type: image.mimeType })
   const form = new FormData()
   form.append('file', blob, `import-${uniqueId}.${image.extension}`)
