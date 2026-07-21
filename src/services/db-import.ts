@@ -112,8 +112,14 @@ export async function parseExcelFile(file: File): Promise<ParsedExcel> {
     headers.push(String(cell.value ?? '').trim())
   })
 
+  // ── 解析合并单元格 ────────────────────────────────────
+  // 从 xlsx zip 的 sheet.xml 中解析 <mergeCell>，构建回填映射
+  // mergeBackfill: key = `${colHeader}:${row}` → sourceRow（首行号，1-based）
+  const mergeBackfill = await parseMergeCells(buffer, headers)
+
+  // ── 按行解析 ──────────────────────────────────────────
   const rows: Record<string, string>[] = []
-  let prevRow: Record<string, string> = {}
+  const rowCache = new Map<number, Record<string, string>>() // 行号 → row 对象，用于 merge 回填
   for (let r = 2; r <= ws.lastRow.number; r++) {
     const row: Record<string, string> = {}
     const excelRow = ws.getRow(r)
@@ -126,14 +132,19 @@ export async function parseExcelFile(file: File): Promise<ParsedExcel> {
       } else {
         val = String(cell.value ?? '').trim()
       }
-      // 合并单元格回填：当前格为空时用上一行的值填充
-      if (!val && prevRow[header]) {
-        val = prevRow[header]
+      // 合并单元格回填：只根据 mergeCell 映射从首行取值
+      const mbKey = `${ci}:${r}`
+      if (!val && mergeBackfill.has(mbKey)) {
+        const srcRow = mergeBackfill.get(mbKey)!
+        const srcCache = rowCache.get(srcRow)
+        if (srcCache && srcCache[header]) {
+          val = srcCache[header]
+        }
       }
       row[header] = val
     })
     rows.push(row)
-    prevRow = row
+    rowCache.set(r, row)
   }
 
   // ── 提取嵌入图片 ────────────────────────────────────────
@@ -147,6 +158,47 @@ export async function parseExcelFile(file: File): Promise<ParsedExcel> {
   }
 
   return { headers, rows, images }
+}
+
+/**
+ * 从 xlsx zip 的 sheet.xml 中解析 <mergeCell>，
+ * 构建回填映射: `${colIndex}:${row}` → sourceRow（合并首行，1-based）。
+ * 只在 Excel 文件中使用了合并单元格时才调用。
+ */
+async function parseMergeCells(
+  buffer: ArrayBuffer,
+  headers: string[],
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
+  try {
+    const JSZip = await import('jszip')
+    const zip = await JSZip.default.loadAsync(buffer)
+    const sheetxml = await zip.file('xl/worksheets/sheet1.xml')?.async('text')
+    if (!sheetxml) return result
+
+    // 匹配 <mergeCell ref="A16:A17"/> 或 <mergeCell ref="E5:E10"/>
+    const mergeRe = /<mergeCell[^>]*ref="([^"]+)"[^>]*\/?>/g
+    let m: RegExpExecArray | null
+    while ((m = mergeRe.exec(sheetxml)) !== null) {
+      const ref = m[1] // e.g. "A16:A17"
+      const parsed = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(ref)
+      if (!parsed) continue
+      const colLetter = parsed[1]
+      const startRow = parseInt(parsed[2], 10)
+      const endRow = parseInt(parsed[4], 10)
+      if (colLetter !== parsed[3]) continue // 多列合并暂不支持
+
+      // 列字母 → 0-based 索引
+      const ci = colLetter.charCodeAt(0) - 65
+      if (ci < 0 || ci >= headers.length) continue
+
+      // 对合并区域内的非首行添加映射
+      for (let r = startRow + 1; r <= endRow; r++) {
+        result.set(`${ci}:${r}`, startRow)
+      }
+    }
+  } catch { /* 解析失败不影响导入 */ }
+  return result
 }
 
 /**
