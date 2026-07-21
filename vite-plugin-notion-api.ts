@@ -807,6 +807,73 @@ async function handleNotionProxy(req: Request): Promise<Response> {
       })
     }
 
+    // ── POST /api/notion/lock-database — 对数据库全部行上锁（archive）──
+    if (method === 'POST' && path === '/api/notion/lock-database') {
+      const body = await req.json() as { databaseId: string }
+      const { databaseId } = body
+
+      // 1. 查询所有行
+      const results2: unknown[] = []
+      let hasMore2 = true
+      let startCursor2: string | undefined
+      while (hasMore2) {
+        const queryBody: Record<string, unknown> = { page_size: 100 }
+        if (startCursor2) queryBody.start_cursor = startCursor2
+        const queryRes = await fetch(
+          `${NOTION_API_BASE}/databases/${databaseId}/query`,
+          { method: 'POST', headers: commonHeaders, body: JSON.stringify(queryBody) },
+        )
+        if (!queryRes.ok) {
+          const err = await queryRes.text()
+          return jsonResponse({ error: `Failed to query: ${queryRes.status} ${err}` }, 502)
+        }
+        const page = await queryRes.json() as Record<string, unknown>
+        const rows = (page.results as unknown[]) ?? []
+        results2.push(...rows)
+        hasMore2 = Boolean(page.has_more)
+        startCursor2 = page.next_cursor as string | undefined
+      }
+
+      const totalRows2 = results2.length
+      if (totalRows2 === 0) {
+        return jsonResponse({ ok: true, locked: 0, total: 0 })
+      }
+
+      // 2. 逐行 archive（Notion API 不支持批量；archive = 上锁）
+      const errors2: Array<{ pageId: string; error: string }> = []
+      const DELAY_MS2 = 334 // Notion API 速率限制 ~3 req/s
+      for (let i = 0; i < totalRows2; i++) {
+        const row = results2[i] as Record<string, unknown>
+        const pageId = row.id as string
+        try {
+          const archiveRes = await fetch(
+            `${NOTION_API_BASE}/pages/${pageId}`,
+            {
+              method: 'PATCH',
+              headers: commonHeaders,
+              body: JSON.stringify({ archived: true }),
+            },
+          )
+          if (!archiveRes.ok) {
+            const err = await archiveRes.text()
+            errors2.push({ pageId, error: `${archiveRes.status} ${err}` })
+          }
+        } catch (e) {
+          errors2.push({ pageId, error: e instanceof Error ? e.message : String(e) })
+        }
+        if (i < totalRows2 - 1) {
+          await new Promise(r => setTimeout(r, DELAY_MS2))
+        }
+      }
+
+      return jsonResponse({
+        ok: errors2.length === 0,
+        locked: totalRows2 - errors2.length,
+        total: totalRows2,
+        errors: errors2.length > 0 ? errors2 : undefined,
+      })
+    }
+
     return errorResponse(`Unknown Notion proxy endpoint: ${path}`, 404)
   } catch (e) {
     const errMsg = e instanceof Error ? e.message : String(e)
