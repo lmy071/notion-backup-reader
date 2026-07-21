@@ -244,17 +244,20 @@ async function replaceUrlsInString(
   const urls = extractExternalUrls(str)
   let result = str
   for (const url of urls) {
-    const localPath = await downloadImage(url, rootPageId)
+    const localPath = await downloadImage(url, rootPageId, onDownload)
     if (localPath) {
       result = result.replace(url, localPath)
-      onDownload?.(url, localPath)
     }
   }
   return result
 }
 
 /** 下载单张图片到本�?images/{rootPageId}/，返回本地路径。失败时保留�?URL�?*/
-async function downloadImage(remoteUrl: string, rootPageId: string): Promise<string> {
+async function downloadImage(
+  remoteUrl: string,
+  rootPageId: string,
+  onDownload?: (remoteUrl: string, localPath: string) => void,
+): Promise<string> {
   let baseName = 'image'
   try {
     const urlObj = new URL(remoteUrl)
@@ -262,7 +265,7 @@ async function downloadImage(remoteUrl: string, rootPageId: string): Promise<str
     baseName = decodeURIComponent(pathParts[pathParts.length - 1]) || 'image'
   } catch { /* ignore */ }
 
-  // 基于 URL pathname 哈希生成唯一文件名（剔除 query string，避�?presigned URL 签名变化导致重复下载�?
+  // 基于 URL pathname 哈希生成唯一文件名（剔除 query string，避免 presigned URL 签名变化导致重复下载）
   const stableKey = new URL(remoteUrl).pathname
   const hash = createHash('md5').update(stableKey).digest('hex').slice(0, 12)
   const ext = extname(baseName).slice(0, 8).toLowerCase() || '.bin'
@@ -279,7 +282,9 @@ async function downloadImage(remoteUrl: string, rootPageId: string): Promise<str
     const buffer = Buffer.from(await res.arrayBuffer())
     await mkdir(rootDir, { recursive: true })
     await writeFile(filePath, buffer)
-    return `/api/images/${rootPageId}/${fileName}`
+    const localPath = `/api/images/${rootPageId}/${fileName}`
+    await onDownload?.(remoteUrl, localPath)
+    return localPath
   } catch {
     return ''
   }
@@ -1328,8 +1333,8 @@ async function handleSyncSSE(req: Request): Promise<Response> {
 
           // 下载图片
           await log('🖼 开始下载远程图片...\n')
-          await downloadAndReplaceImages(collected, rootPageId, (remoteUrl, localPath) => {
-            log(`🖼 图片已下载: ${localPath}\n`)
+          await downloadAndReplaceImages(collected, rootPageId, async (_remoteUrl, localPath) => {
+            await log(`⬇ ${localPath}\n`)
           })
           await log('🖼 图片下载完成\n')
 
