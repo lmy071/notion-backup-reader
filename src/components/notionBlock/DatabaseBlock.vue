@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, inject, watch, type Ref } from 'vue'
+import { ref, computed, inject, watch, nextTick, type Ref } from 'vue'
 import type { NotionBlock, NotionDatabase, DatabasePropertyValue, NotionDatabaseRow, DatabasePropertyConfig, NotionPage } from '@/types/notion'
 import { storage } from '@/services/storage'
 import { createMcpClient } from '@/services/mcp'
@@ -16,9 +16,8 @@ import {
   createDatabasePage,
   updateDatabasePage,
   uploadImageForImport,
-  type ImportLog,
 } from '@/services/db-import'
-import ImportLogDrawer from '@/components/common/ImportLogDrawer.vue'
+import { useImportLog } from '@/composables/useImportLog'
 
 const props = defineProps<{
   block: NotionBlock
@@ -38,13 +37,35 @@ const rowPageLoading = ref(false)
 const rowPageBlocks = ref<NotionBlock[]>([])
 const rowPageError = ref<string | null>(null)
 
-// Import state
+// Import state — 逐字终端式日志
 const configStore = useConfigStore()
-const importLogs = ref<ImportLog[]>([])
+const { logLines, log, logProgress, clear: clearLogs } = useImportLog()
 const importDrawerOpen = ref(false)
 const importing = ref(false)
 const importProgress = ref<{ done: number; total: number } | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
+const logContainer = ref<HTMLElement | null>(null)
+const logPaused = ref(false)
+
+// 新日志追加后自动滚动到底部（鼠标未悬停时）
+watch(
+  () => logLines.value.length,
+  () => {
+    if (logPaused.value) return
+    nextTick(() => {
+      const el = logContainer.value
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  },
+)
+
+// 初始化时清空日志（HMR 保留）
+watch(importDrawerOpen, (open) => {
+  if (open) {
+    clearLogs()
+    logPaused.value = false
+  }
+})
 
 // Filters
 const filterText = ref('')
@@ -439,6 +460,30 @@ async function exportXlsx() {
       ws.getColumn(ci + 1).width = Math.min((maxLen + 3) * 2, 80)
     }
 
+    // ── title 列相邻重复值垂直合并 ──
+    const titleColIdx = cols.findIndex(c => c.type === 'title')
+    if (titleColIdx >= 0) {
+      const colLetter = String.fromCharCode(65 + titleColIdx) // A, B, C...
+      let mergeStart = 2 // 数据行从第 2 行开始（第 1 行是表头）
+      let prevTitle = getCellText(rows[0]?.properties[cols[titleColIdx].key])
+
+      for (let ri = 1; ri < rows.length; ri++) {
+        const curTitle = getCellText(rows[ri].properties[cols[titleColIdx].key])
+        if (curTitle !== prevTitle) {
+          // 上一段结束，合并
+          if (mergeStart < ri + 1) {
+            ws.mergeCells(`${colLetter}${mergeStart}:${colLetter}${ri + 1}`)
+          }
+          mergeStart = ri + 2
+          prevTitle = curTitle
+        }
+      }
+      // 最后一段
+      if (mergeStart < rows.length + 1) {
+        ws.mergeCells(`${colLetter}${mergeStart}:${colLetter}${rows.length + 1}`)
+      }
+    }
+
     // ── 生成 xlsx 并注入 cellimages ──
     const xlsxBuffer = await wb.xlsx.writeBuffer()
     const zip = await JSZip.loadAsync(xlsxBuffer)
@@ -576,30 +621,22 @@ async function handleImport(file: File) {
   if (!database.value) return
 
   importDrawerOpen.value = true
-  importLogs.value = []
+  clearLogs()
   importing.value = true
   importProgress.value = null
 
   const apiKey = configStore.config.apiKey
   if (!apiKey) {
-    importLogs.value.push({
-      level: 'error',
-      message: '未配置 Notion Integration Token，请在配置页设置',
-      time: Date.now(),
-    })
+    log('❌ 未配置 Notion Integration Token，请在配置页设置')
     importing.value = false
     return
   }
 
   try {
     // 1. 解析 Excel（含嵌入图片）
-    importLogs.value.push({ level: 'info', message: '正在解析 Excel 文件...', time: Date.now() })
+    log('📊 正在解析 Excel 文件...')
     const { headers, rows, images } = await parseExcelFile(file)
-    importLogs.value.push({
-      level: 'info',
-      message: `解析完成：${headers.length} 列, ${rows.length} 行数据, ${images.size} 张嵌入图片`,
-      time: Date.now(),
-    })
+    log(`  解析完成：${headers.length} 列, ${rows.length} 行数据, ${images.size} 张嵌入图片`)
 
     // 2. 构建 schema
     const schema = buildDbSchema(database.value)
@@ -607,10 +644,10 @@ async function handleImport(file: File) {
     // 3. 列校验
     const colErrors = validateColumns(headers, schema)
     for (const e of colErrors) {
-      importLogs.value.push({ level: 'warn', message: e.message, column: e.column, time: Date.now() })
+      log(`⚠ ${e.message}`)
     }
 
-    // 4. 检测 Excel 是否有 id 列（不区分大小写），用于优先 ID 匹配
+    // 4. 检测 Excel 是否有 id 列
     const idColumnKey = headers.find(h => h.toLowerCase() === 'id')
     const existingIds = new Set<string>()
     if (idColumnKey) {
@@ -631,18 +668,19 @@ async function handleImport(file: File) {
       }
     }
 
-    // 6. 行校验（优先 ID 列匹配，其次 title 匹配）
-    importLogs.value.push({ level: 'info', message: '正在校验数据...', time: Date.now() })
-    const rowLogs = validateRows(rows, schema, existingTitles, {
-      idColumnKey,
-      existingIds,
-    })
-    importLogs.value.push(...rowLogs)
+    // 6. 行校验
+    log('🔍 正在校验数据...')
+    const rowLogs = validateRows(rows, schema, existingTitles, { idColumnKey, existingIds })
+    for (const rl of rowLogs) {
+      const tag = { info: '·', warn: '⚠', error: '❌', success: '✅', skip: '⏭', update: '🔄' }[rl.level] || '·'
+      const prefix = rl.row ? `  R${rl.row}` : ''
+      log(`  ${tag}${prefix} ${rl.message}`)
+    }
 
     // 7. 统计
-    const errors = importLogs.value.filter(l => l.level === 'error' && l.row)
-    const skips = importLogs.value.filter(l => l.level === 'skip')
-    const updates = importLogs.value.filter(l => l.level === 'update')
+    const errors = rowLogs.filter(l => l.level === 'error' && l.row)
+    const skips = rowLogs.filter(l => l.level === 'skip')
+    const updates = rowLogs.filter(l => l.level === 'update')
     const toProcess = rows.filter((_, i) => {
       const rn = i + 1
       return !errors.some(e => e.row === rn) && !skips.some(s => s.row === rn)
@@ -656,23 +694,19 @@ async function handleImport(file: File) {
       return updates.some(u => u.row === rn)
     })
 
-    importLogs.value.push({
-      level: 'info',
-      message: `校验完成：${toCreate.length} 条待新增, ${toUpdate.length} 条待更新, ${skips.length} 条跳过, ${errors.length} 条有错误`,
-      time: Date.now(),
-    })
+    log(`📋 校验完成：${toCreate.length} 条待新增, ${toUpdate.length} 条待更新, ${skips.length} 条跳过, ${errors.length} 条有错误`)
 
     if (toProcess.length === 0) {
-      importLogs.value.push({ level: 'warn', message: '没有需要处理的数据', time: Date.now() })
+      log('⚠ 没有需要处理的数据')
       importing.value = false
       return
     }
 
-    // 8. 逐行处理（新增 + 更新）
+    // 8. 逐行处理
     importProgress.value = { done: 0, total: toProcess.length }
-    importLogs.value.push({ level: 'info', message: `开始处理 ${toProcess.length} 条数据（新增 ${toCreate.length}, 更新 ${toUpdate.length}）...`, time: Date.now() })
+    log(`🚀 开始处理 ${toProcess.length} 条数据（新增 ${toCreate.length}, 更新 ${toUpdate.length}）...`)
 
-    // 构建 ID → pageId 映射（优先）和 title → pageId 映射（兜底）
+    // 构建映射
     const idToPageId = new Map<string, string>()
     const titleToPageId = new Map<string, string>()
     for (const dbRow of database.value.rows) {
@@ -686,18 +720,15 @@ async function handleImport(file: File) {
 
     for (let i = 0; i < rows.length; i++) {
       const rn = i + 1
-      // 跳过错误行和已存在行
       if (errors.some(e => e.row === rn) || skips.some(s => s.row === rn)) continue
 
       const row = rows[i]
       const titleValue = row[schema.titleKey]
       const isUpdate = updates.some(u => u.row === rn)
 
-      // 7a. 上传 files 列的图片到 PicList 图床（带重试）
+      // 上传图片
       const imageUrls: Record<string, string[]> = {}
-      const filesColumns = Object.keys(schema.properties).filter(
-        k => schema.properties[k].type === 'files',
-      )
+      const filesColumns = Object.keys(schema.properties).filter(k => schema.properties[k].type === 'files')
       let uploadAborted = false
 
       for (const col of filesColumns) {
@@ -705,46 +736,23 @@ async function handleImport(file: File) {
         const img = images.get(key)
         if (!img) continue
 
-        // 上传前间隔 1s
         await delay(2000)
-
-        // 重试逻辑：最多 5 次，间隔 5s
         let url: string | null = null
         for (let attempt = 1; attempt <= 5; attempt++) {
           url = await uploadImageForImport(img)
           if (url) break
-
           if (attempt < 5) {
-            importLogs.value.push({
-              level: 'warn',
-              message: `"${titleValue}" ${col} 图片上传失败（第 ${attempt}/5 次），5s 后重试...`,
-              row: rn,
-              column: col,
-              time: Date.now(),
-            })
+            log(`⚠ R${rn} "${titleValue}" ${col} 图片上传失败（第 ${attempt}/5 次），5s 后重试...`)
             await delay(5000)
           }
         }
 
         if (url) {
           imageUrls[col] = [url]
-          importLogs.value.push({
-            level: 'success',
-            message: `"${titleValue}" ${col} 图片上传成功`,
-            row: rn,
-            column: col,
-            time: Date.now(),
-          })
-          // 成功后间隔 1s 再继续下一张
+          log(`✅ R${rn} "${titleValue}" ${col} 图片上传成功`)
           await delay(5000)
         } else {
-          importLogs.value.push({
-            level: 'error',
-            message: `"${titleValue}" ${col} 图片上传失败（已重试 5 次），终止导入`,
-            row: rn,
-            column: col,
-            time: Date.now(),
-          })
+          log(`❌ R${rn} "${titleValue}" ${col} 图片上传失败（已重试 5 次），终止导入`)
           uploadAborted = true
           break
         }
@@ -755,80 +763,44 @@ async function handleImport(file: File) {
         return
       }
 
-      // 7b. 构建 Notion properties（"更新"列自动跳过）
       const properties = buildNotionProperties(row, schema, imageUrls)
-
       let res: { ok: boolean; error?: string }
+
       if (isUpdate) {
-        // 更新已有页面：优先用 ID 列查找，其次用 title
         const excelId = idColumnKey ? (row[idColumnKey] || '').trim() : ''
         let pageId = excelId ? idToPageId.get(excelId.toLowerCase()) : undefined
         if (!pageId) pageId = titleToPageId.get(titleValue)
         if (!pageId) {
-          importLogs.value.push({
-            level: 'error',
-            message: `"${titleValue}" 未找到已有页面 ID，跳过更新`,
-            row: rn,
-            time: Date.now(),
-          })
+          log(`❌ R${rn} "${titleValue}" 未找到已有页面 ID，跳过更新`)
           importProgress.value.done++
           continue
         }
         res = await updateDatabasePage(pageId, properties, apiKey)
         if (res.ok) {
-          importLogs.value.push({
-            level: 'success',
-            message: `"${titleValue}" 更新成功`,
-            row: rn,
-            time: Date.now(),
-          })
+          log(`🔄 R${rn} "${titleValue}" 更新成功`)
         } else {
-          importLogs.value.push({
-            level: 'error',
-            message: `"${titleValue}" 更新失败: ${res.error}`,
-            row: rn,
-            time: Date.now(),
-          })
+          log(`❌ R${rn} "${titleValue}" 更新失败: ${res.error}`)
         }
       } else {
-        // 新增页面
         res = await createDatabasePage(props.block.id, properties, apiKey)
         if (res.ok) {
-          importLogs.value.push({
-            level: 'success',
-            message: `"${titleValue}" 导入成功`,
-            row: rn,
-            time: Date.now(),
-          })
+          log(`✅ R${rn} "${titleValue}" 导入成功`)
         } else {
-          importLogs.value.push({
-            level: 'error',
-            message: `"${titleValue}" 导入失败: ${res.error}`,
-            row: rn,
-            time: Date.now(),
-          })
+          log(`❌ R${rn} "${titleValue}" 导入失败: ${res.error}`)
         }
       }
 
       importProgress.value.done++
 
-      // 请求间隔
       if (configStore.config.requestDelay > 0) {
         await new Promise(resolve => setTimeout(resolve, configStore.config.requestDelay))
       }
     }
 
-    importLogs.value.push({
-      level: 'info',
-      message: `处理完成！成功 ${importLogs.value.filter(l => l.level === 'success').length} 条`,
-      time: Date.now(),
-    })
+    const successCount = importProgress.value.done - rowLogs.filter(l => l.level === 'error').length
+    log(`🎉 处理完成！成功 ${successCount} 条`)
   } catch (e) {
-    importLogs.value.push({
-      level: 'error',
-      message: e instanceof Error ? e.message : '导入过程异常',
-      time: Date.now(),
-    })
+    log(`💥 ${e instanceof Error ? e.message : '导入过程异常'}`)
   } finally {
     importing.value = false
     importProgress.value = null
@@ -1149,14 +1121,58 @@ async function handleImport(file: File) {
       </Transition>
     </Teleport>
   </div>
-  <!-- 导入日志抽屉 -->
-  <ImportLogDrawer
-    :open="importDrawerOpen"
-    :logs="importLogs"
-    :importing="importing"
-    :import-progress="importProgress"
-    @close="importDrawerOpen = false"
-  />
+  <!-- 导入日志面板 — 终�?�式逐字输出（与同步日志一致）-->
+  <div
+    v-if="importDrawerOpen"
+    class="relative p-5 rounded-lg mt-4"
+    style="background-color: var(--c-card-bg); border: 1px solid var(--c-card-border)"
+  >
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-base font-semibold" style="color: var(--c-text-primary)">导入日志</h3>
+      <button
+        class="text-sm px-3 py-1 rounded border-none cursor-pointer transition-colors"
+        style="color: var(--c-text-secondary); background-color: var(--c-bg-secondary)"
+        @click="importDrawerOpen = false"
+      >
+        ✕ 关闭
+      </button>
+    </div>
+
+    <!-- 进度条 -->
+    <div v-if="importProgress" class="mb-3">
+      <div class="flex items-center justify-between text-xs mb-1" style="color: var(--c-text-secondary)">
+        <span>导入进度</span>
+        <span>{{ importProgress.done }} / {{ importProgress.total }}</span>
+      </div>
+      <div class="h-1.5 rounded-full overflow-hidden" style="background-color: var(--c-bg-secondary)">
+        <div
+          class="h-full rounded-full transition-all duration-300"
+          style="background-color: var(--c-brand)"
+          :style="{ width: (importProgress.total > 0 ? (importProgress.done / importProgress.total) * 100 : 0) + '%' }"
+        />
+      </div>
+    </div>
+
+    <!-- 日志内容 — 终�?�式 -->
+    <div
+      ref="logContainer"
+      class="rounded p-3 overflow-y-auto font-mono text-xs leading-relaxed"
+      style="height: 320px; background-color: var(--c-bg-secondary); color: var(--c-text)"
+      @mouseenter="logPaused = true"
+      @mouseleave="logPaused = false"
+    >
+      <div v-if="logLines.length === 0 && !importing" style="color: var(--c-text-secondary)">
+        暂无日志
+      </div>
+      <div
+        v-for="(line, i) in logLines"
+        :key="i"
+        class="whitespace-pre-wrap break-all"
+      >
+        {{ line }}
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
