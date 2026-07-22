@@ -102,9 +102,10 @@ export async function parseExcelFile(file: File): Promise<ParsedExcel> {
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(buffer)
 
-  const ws = wb.getWorksheet(1)
+  // 按位置取第一个 sheet（不能用 getWorksheet(1)，sheet id 可能不是 1）
+  const ws = wb.worksheets[0]
   if (!ws || !ws.lastRow || ws.lastRow.number < 2) {
-    throw new Error('Excel 文件为空或缺少数据行')
+    throw new Error('Excel 文件为空或缺少数据行 (共 ' + String(wb.worksheets.length) + ' 个 sheet)')
   }
 
   const headers: string[] = []
