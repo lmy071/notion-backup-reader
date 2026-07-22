@@ -59,6 +59,7 @@ export interface NotionDatabaseRow {
   id: string
   properties: Record<string, DatabasePropertyValue>
   blocks?: NotionBlock[]
+}
 
 export interface DatabasePropertyValue {
   type: string

@@ -378,8 +378,9 @@ async function handleRequest(req: Request): Promise<Response> {
     if (!page) return jsonResponse(null, 404)
 
     // 兼容旧数据：确保 blocks 是扁平化格式
-    if (page.blocks && Array.isArray(page.blocks)) {
-      page.blocks = page.blocks.map((b: unknown) => {
+    const pageObj = page as { blocks?: unknown[] }
+    if (pageObj.blocks && Array.isArray(pageObj.blocks)) {
+      pageObj.blocks = pageObj.blocks.map((b: unknown) => {
         const block = b as Record<string, unknown>
         if (block.object && block.type) {
           return normalizeBlock(block)
@@ -1290,7 +1291,7 @@ async function handleSyncSSE(req: Request): Promise<Response> {
                           await delay(Math.max(minInterval, 350))
                           const rowBlocks = await fetchBlocks(row.id as string, commonHeaders)
                           if (rowBlocks && Array.isArray(rowBlocks) && rowBlocks.length > 0) {
-                            row.blocks = rowBlocks.map(normalizeBlock)
+                            row.blocks = rowBlocks.map((b) => normalizeBlock(b as Record<string, unknown>))
                             rowsWithContent++
                           }
                         } catch (e) {

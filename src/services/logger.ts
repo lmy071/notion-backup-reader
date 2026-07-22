@@ -4,6 +4,7 @@ export interface LogEntry {
   pageId?: string
   pageTitle?: string
   dbId?: string
+  rowId?: string
   action: 'sync_start' | 'sync_done' | 'sync_error' | 'block_fetch' | 'child_fetch' | 'db_fetch' | 'cleanup' | 'config'
   message: string
   duration?: number

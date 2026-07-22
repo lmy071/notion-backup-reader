@@ -5,6 +5,7 @@ import { logger } from './logger'
 import { createConcurrencyController } from './concurrency'
 import { parsePage, parseDatabase, parseBlock } from '../../notion-parser/index'
 import type { RawBlock, RawPage } from '../../notion-parser/types'
+import { useConfigStore } from '@/stores/config'
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -226,6 +227,8 @@ async function syncOnePage(
 
   const startTime = Date.now()
   let title = initialTitle || pageId
+
+  const { config } = useConfigStore()
 
   ensureTask(pageId, title)
 

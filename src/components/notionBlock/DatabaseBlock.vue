@@ -19,6 +19,59 @@ import {
 } from '@/services/db-import'
 import { useImportLog } from '@/composables/useImportLog'
 
+const props = defineProps<{
+  block: NotionBlock
+}>()
+
+const readerRootPageId = inject<Ref<string>>('readerRootPageId')
+const readerDate = inject<Ref<string>>('readerDate')
+
+// 新窗口打开外部 URL（模板中不允许直接访问 window）
+function openUrl(url: string) {
+  if (url) window.open(url, '_blank')
+}
+
+const database = ref<NotionDatabase | null>(null)
+const loading = ref(false)
+const error = ref<string | null>(null)
+
+// Drawer state
+const drawerOpen = ref(false)
+const selectedRowId = ref<string | null>(null)
+const rowPageLoading = ref(false)
+const rowPageBlocks = ref<NotionBlock[]>([])
+const rowPageError = ref<string | null>(null)
+
+// Import state — 逐字终端式日志
+const configStore = useConfigStore()
+const { logLines, log, logProgress, clear: clearLogs } = useImportLog()
+const importDrawerOpen = ref(false)
+const importing = ref(false)
+const importProgress = ref<{ done: number; total: number } | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
+const logContainer = ref<HTMLElement | null>(null)
+const logPaused = ref(false)
+
+// 新日志追加后自动滚动到底部（鼠标未悬停时）
+watch(
+  () => logLines.value.length,
+  () => {
+    if (logPaused.value) return
+    nextTick(() => {
+      const el = logContainer.value
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  },
+)
+
+// 初始化时清空日志（HMR 保留）
+watch(importDrawerOpen, (open) => {
+  if (open) {
+    clearLogs()
+    logPaused.value = false
+  }
+})
+
 // Filters
 const filterText = ref('')
 
@@ -235,7 +288,7 @@ async function loadRowPageContent(rowId: string) {
     }
 
     // 3. 回退到 Notion API 在线获取
-    const apiKey = configStore.apiKey
+    const apiKey = configStore.config.apiKey
     if (!apiKey) {
       // 无 API Key → 静默，不展示正文区
       return
@@ -575,7 +628,24 @@ async function doExportXlsx() {
 
 // ── 导入 Excel ────────────────────────────────────────────
 
+const showImport = computed(() => {
+  return configStore.config.enableDbImport
+})
+
 /** 判断当前数据库是否开启导入模式 */
+const importEnabled = computed(() => {
+  return configStore.config.enableDbImport && !!props.block.id
+})
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/** 触发文件选择 */
+function triggerImport() {
+  fileInput.value?.click()
+}
+
 /** 处理 Excel 文件导入 */
 async function handleImport(file: File) {
   if (!database.value) return
@@ -769,6 +839,371 @@ async function handleImport(file: File) {
 </script>
 
 <template>
+  <div class="my-4">
+    <!-- Loading skeleton -->
+    <div v-if="loading" class="overflow-x-auto rounded-lg" style="border: 1px solid var(--c-table-border)">
+      <table class="w-full border-collapse">
+        <thead>
+          <tr style="background-color: var(--c-table-header-bg)">
+            <th v-for="i in 3" :key="i" class="px-4 py-3 text-left text-sm font-medium" style="color: var(--c-text-secondary)">
+              <div class="h-4 rounded animate-pulse" style="width: 80px; background-color: var(--c-border)" />
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="i in 3" :key="i" :style="{ borderTop: i > 1 ? '1px solid var(--c-table-border)' : 'none' }">
+            <td v-for="j in 3" :key="j" class="px-4 py-2">
+              <div class="h-3 rounded animate-pulse" style="width: 60px; background-color: var(--c-border)" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="error" class="p-4 rounded-lg text-sm" style="color: var(--c-text-tertiary); background-color: var(--c-bg-secondary)">
+      ⚠️ 数据库加载失败: {{ error }}
+    </div>
+
+    <!-- Empty state -->
+    <div v-else-if="!database?.rows?.length" class="p-4 rounded-lg text-sm text-center" style="color: var(--c-text-tertiary); background-color: var(--c-bg-secondary); border: 1px solid var(--c-border)">
+      📊 空数据库
+    </div>
+
+    <!-- Database table -->
+    <div v-else class="overflow-x-auto rounded-lg" style="border: 1px solid var(--c-table-border)">
+      <!-- Database title bar -->
+      <div
+        class="flex items-center justify-between px-4 py-2"
+        style="background-color: var(--c-table-header-bg); border-bottom: 1px solid var(--c-table-border)"
+      >
+        <span
+          v-if="database.title"
+          class="text-sm font-medium shrink-0"
+          style="color: var(--c-text-secondary)"
+        >
+          {{ database.title }}
+        </span>
+        <span v-else class="shrink-0" />
+
+        <!-- Filter input -->
+        <div class="flex items-center gap-2">
+          <!-- Export xlsx -->
+          <button
+            class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+            style="background-color: var(--c-brand-light); color: var(--c-brand)"
+            title="导出为 Excel 文件"
+            @click.stop="exportXlsx"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>{{ filterResultCount !== database.rows?.length && filteredRows.length < (database.rows?.length ?? 0) ? `导出 (${filteredRows.length})` : '导出' }}</span>
+          </button>
+          <!-- Import xlsx (only when db import mode is enabled) -->
+          <button
+            v-if="showImport"
+            class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+            style="background-color: var(--c-brand-light); color: var(--c-brand)"
+            title="从 Excel 导入数据"
+            @click.stop="triggerImport"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            <span>导入</span>
+          </button>
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".xlsx,.xls"
+            class="hidden"
+            @change="(e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleImport(f); (e.target as HTMLInputElement).value = '' }"
+          />
+          <div
+            v-if="filterResultCount !== database.rows?.length"
+            class="text-xs shrink-0"
+            style="color: var(--c-text-tertiary)"
+          >
+            {{ filterResultCount }} / {{ database.rows?.length }}
+          </div>
+          <div class="relative">
+            <input
+              v-model="filterText"
+              type="text"
+              placeholder="过滤…"
+              class="text-xs rounded border px-2 py-1 outline-none transition-colors"
+              :style="{
+                width: '140px',
+                backgroundColor: 'var(--c-bg)',
+                color: 'var(--c-text)',
+                borderColor: filterText ? 'var(--c-brand)' : 'var(--c-border)',
+              }"
+            />
+            <button
+              v-if="filterText"
+              class="absolute right-1 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full text-xs leading-none cursor-pointer"
+              style="color: var(--c-text-tertiary)"
+              @click="clearFilter"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto" style="max-height: 480px; overflow-y: auto">
+        <table class="w-full border-collapse min-w-max">
+          <thead class="sticky top-0 z-10">
+            <tr style="background-color: var(--c-table-header-bg)">
+              <th
+                v-for="col in getColumnNames()"
+                :key="col.key"
+                class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                style="color: var(--c-text-secondary); border-bottom: 2px solid var(--c-table-border)"
+              >
+                {{ col.name }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(row, rowIdx) in filteredRows"
+              :key="row.id"
+              class="cursor-pointer transition-colors"
+              :style="{
+                borderTop: rowIdx > 0 ? '1px solid var(--c-table-border)' : 'none',
+                backgroundColor: rowIdx % 2 === 0 ? 'var(--c-bg)' : 'var(--c-bg-secondary)',
+              }"
+              @click="openDrawer(row.id)"
+            >
+              <td
+                v-for="col in getColumnNames()"
+                :key="col.key"
+                class="px-4 py-2 text-sm whitespace-nowrap"
+                style="color: var(--c-text)"
+              >
+                <!-- files type: show thumbnails -->
+                <template v-if="getColumnType(col.key) === 'files'">
+                  <div class="flex items-center gap-1.5">
+                    <div
+                      v-for="(f, fi) in getFilesList(row.properties[col.key])"
+                      :key="fi"
+                      class="block rounded border overflow-hidden shrink-0"
+                      :style="{
+                        width: '40px',
+                        height: '40px',
+                        borderColor: 'var(--c-border)',
+                        cursor: isImageFile(f.name) ? 'zoom-in' : 'pointer',
+                      }"
+                      @click="isImageFile(f.name) ? openImageViewer(f.url) : openUrl(f.url)"
+                    >
+                      <img
+                        v-if="isImageFile(f.name)"
+                        :src="f.url"
+                        :alt="f.name"
+                        class="w-full h-full object-cover"
+                        loading="lazy"
+                      />
+                      <div
+                        v-else
+                        class="w-full h-full flex items-center justify-center text-10px"
+                        style="color: var(--c-text-tertiary)"
+                      >
+                        📄
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <!-- other types: plain text -->
+                <template v-else>
+                  {{ getCellText(row.properties[col.key]) }}
+                </template>
+              </td>
+            </tr>
+            <!-- No results after filter -->
+            <tr v-if="filterText && filteredRows.length === 0">
+              <td
+                :colspan="getColumnNames().length"
+                class="px-4 py-8 text-center text-sm"
+                style="color: var(--c-text-tertiary)"
+              >
+                无匹配结果
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Row detail drawer -->
+    <Teleport to="body">
+      <Transition name="drawer-fade">
+        <div
+          v-if="drawerOpen"
+          class="fixed inset-0 z-40"
+          style="background-color: rgba(0,0,0,0.3)"
+          @click="closeDrawer"
+        />
+      </Transition>
+
+      <Transition name="drawer-slide">
+        <div
+          v-if="drawerOpen"
+          class="fixed top-0 right-0 h-full z-50 flex flex-col shadow-2xl"
+          style="width: 40%; min-width: 360px; max-width: 90vw; background-color: var(--c-bg);"
+        >
+          <!-- Header -->
+          <div
+            class="flex items-center justify-between px-6 py-4 shrink-0"
+            style="border-bottom: 1px solid var(--c-border); background-color: var(--c-bg-secondary)"
+          >
+            <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--c-text-secondary)">
+              行详情
+            </h3>
+            <button
+              class="w-7 h-7 flex items-center justify-center rounded-full transition-colors cursor-pointer"
+              style="color: var(--c-text-secondary)"
+              @click="closeDrawer"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <!-- Body -->
+          <div class="flex-1 overflow-y-auto px-6 py-5">
+            <template v-if="selectedRow">
+              <dl class="space-y-0">
+                <div
+                  v-for="col in getColumnNames()"
+                  :key="col.key"
+                  class="flex py-3"
+                  :style="{ borderBottom: '1px solid var(--c-border-light)' }"
+                >
+                  <dt class="w-32 shrink-0 text-xs font-medium uppercase tracking-wide pt-0.5" style="color: var(--c-text-tertiary)">
+                    {{ col.name }}
+                  </dt>
+                  <dd class="flex-1 min-w-0 text-sm leading-relaxed" :style="{ color: 'var(--c-text)' }">
+                    <!-- files type: show images in drawer -->
+                    <template v-if="getColumnType(col.key) === 'files'">
+                      <div class="flex flex-wrap gap-2">
+                        <div
+                          v-for="(f, fi) in getFilesList(selectedRow!.properties[col.key])"
+                          :key="fi"
+                          class="block rounded border overflow-hidden"
+                          :style="{
+                            width: isImageFile(f.name) ? '120px' : '40px',
+                            height: isImageFile(f.name) ? '120px' : '40px',
+                            borderColor: 'var(--c-border)',
+                            cursor: isImageFile(f.name) ? 'zoom-in' : 'pointer',
+                          }"
+                          @click="isImageFile(f.name) ? openImageViewer(f.url) : openUrl(f.url)"
+                        >
+                          <img
+                            v-if="isImageFile(f.name)"
+                            :src="f.url"
+                            :alt="f.name"
+                            class="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                          <div
+                            v-else
+                            class="w-full h-full flex items-center justify-center text-xs"
+                            style="color: var(--c-text-tertiary)"
+                          >
+                            📄
+                          </div>
+                        </div>
+                      </div>
+                      <div class="text-xs mt-1" style="color: var(--c-text-tertiary)">
+                        {{ getCellText(selectedRow!.properties[col.key]) }}
+                      </div>
+                    </template>
+                    <!-- other types -->
+                    <template v-else>
+                      {{ formatDrawerValue(selectedRow!.properties[col.key]) }}
+                    </template>
+                  </dd>
+                </div>
+              </dl>
+
+              <!-- 行页面正文内容 -->
+              <div v-if="rowPageLoading" class="text-sm text-center py-4" style="color: var(--c-text-tertiary)">
+                加载正文中...
+              </div>
+              <div v-else-if="rowPageError" class="text-sm text-center py-4" style="color: var(--c-text-tertiary)">
+                {{ rowPageError }}
+              </div>
+              <div v-else-if="rowPageBlocks.length > 0" class="mt-4 pt-4" style="border-top: 2px solid var(--c-border)">
+                <h3 class="text-xs font-semibold uppercase tracking-wide mb-3" style="color: var(--c-text-tertiary)">正文内容</h3>
+                <div class="row-page-content">
+                  <NotionRenderer :blocks="rowPageBlocks" />
+                </div>
+              </div>
+            </template>
+            <div v-else class="text-sm text-center py-8" style="color: var(--c-text-tertiary)">
+              未选择行
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+  </div>
+  <!-- 导入日志面板 — 终�?�式逐字输出（与同步日志一致）-->
+  <div
+    v-if="importDrawerOpen"
+    class="relative p-5 rounded-lg mt-4"
+    style="background-color: var(--c-card-bg); border: 1px solid var(--c-card-border)"
+  >
+    <div class="flex items-center justify-between mb-3">
+      <h3 class="text-base font-semibold" style="color: var(--c-text-primary)">导入日志</h3>
+      <button
+        class="text-sm px-3 py-1 rounded border-none cursor-pointer transition-colors"
+        style="color: var(--c-text-secondary); background-color: var(--c-bg-secondary)"
+        @click="importDrawerOpen = false"
+      >
+        ✕ 关闭
+      </button>
+    </div>
+
+    <!-- 进度条 -->
+    <div v-if="importProgress" class="mb-3">
+      <div class="flex items-center justify-between text-xs mb-1" style="color: var(--c-text-secondary)">
+        <span>导入进度</span>
+        <span>{{ importProgress.done }} / {{ importProgress.total }}</span>
+      </div>
+      <div class="h-1.5 rounded-full overflow-hidden" style="background-color: var(--c-bg-secondary)">
+        <div
+          class="h-full rounded-full transition-all duration-300"
+          style="background-color: var(--c-brand)"
+          :style="{ width: (importProgress.total > 0 ? (importProgress.done / importProgress.total) * 100 : 0) + '%' }"
+        />
+      </div>
+    </div>
+
+    <!-- 日志内容 — 终�?�式 -->
+    <div
+      ref="logContainer"
+      class="rounded p-3 overflow-y-auto font-mono text-xs leading-relaxed"
+      style="height: 320px; background-color: var(--c-bg-secondary); color: var(--c-text)"
+      @mouseenter="logPaused = true"
+      @mouseleave="logPaused = false"
+    >
+      <div v-if="logLines.length === 0 && !importing" style="color: var(--c-text-secondary)">
+        暂无日志
+      </div>
+      <div
+        v-for="(line, i) in logLines"
+        :key="i"
+        class="whitespace-pre-wrap break-all"
+      >
+        {{ line }}
+      </div>
+    </div>
+  </div>
+
   <!-- ── 导出配置对话框 ── -->
   <Teleport to="body">
     <Transition name="export-dialog-fade">
