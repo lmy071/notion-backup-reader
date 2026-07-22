@@ -7,17 +7,6 @@ import { parseBlock } from '../../../notion-parser/index'
 import { useConfigStore } from '@/stores/config'
 import { useImageViewer } from '@/composables/useImageViewer'
 import NotionRenderer from './NotionRenderer.vue'
-import {
-  parseExcelFile,
-  buildDbSchema,
-  validateColumns,
-  validateRows,
-  buildNotionProperties,
-  createDatabasePage,
-  updateDatabasePage,
-  uploadImageForImport,
-} from '@/services/db-import'
-import { useImportLog } from '@/composables/useImportLog'
 
 const props = defineProps<{
   block: NotionBlock
@@ -39,36 +28,29 @@ const rowPageError = ref<string | null>(null)
 
 // Import state — 逐字终端式日志
 const configStore = useConfigStore()
-const { logLines, log, logProgress, clear: clearLogs } = useImportLog()
-const importDrawerOpen = ref(false)
-const importing = ref(false)
-const importProgress = ref<{ done: number; total: number } | null>(null)
-const fileInput = ref<HTMLInputElement | null>(null)
-const logContainer = ref<HTMLElement | null>(null)
-const logPaused = ref(false)
-
-// 新日志追加后自动滚动到底部（鼠标未悬停时）
-watch(
-  () => logLines.value.length,
-  () => {
-    if (logPaused.value) return
-    nextTick(() => {
-      const el = logContainer.value
-      if (el) el.scrollTop = el.scrollHeight
-    })
-  },
-)
-
-// 初始化时清空日志（HMR 保留）
-watch(importDrawerOpen, (open) => {
-  if (open) {
-    clearLogs()
-    logPaused.value = false
-  }
-})
 
 // Filters
 const filterText = ref('')
+
+// ── 导出配置对话框 ──
+const showExportDialog = ref(false)
+type ExportColumnItem = { key: string; name: string; type: string; selected: boolean }
+const exportColumns = ref<ExportColumnItem[]>([])
+const exportDragIdx = ref<number | null>(null)
+const exportDragOverIdx = ref<number | null>(null)
+
+function openExportDialog() {
+  if (!database.value) return
+  exportColumns.value = getColumnNames().map(c => ({ ...c, selected: true }))
+  showExportDialog.value = true
+}
+function toggleExportColumn(idx: number) { exportColumns.value[idx].selected = !exportColumns.value[idx].selected }
+function onExportDragStart(idx: number, e: DragEvent) { exportDragIdx.value = idx; if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)) } }
+function onExportDragOver(idx: number, e: DragEvent) { e.preventDefault(); exportDragOverIdx.value = idx; if (e.dataTransfer) e.dataTransfer.dropEffect = 'move' }
+function onExportDragLeave() { exportDragOverIdx.value = null }
+function onExportDrop(idx: number) { const from = exportDragIdx.value; if (from === null || from === idx) return; const items = [...exportColumns.value]; const [moved] = items.splice(from, 1); items.splice(idx, 0, moved); exportColumns.value = items; exportDragIdx.value = null; exportDragOverIdx.value = null }
+function onExportDragEnd() { exportDragIdx.value = null; exportDragOverIdx.value = null }
+function confirmExport() { showExportDialog.value = false; doExportXlsx() }
 
 // Filtered rows based on search keyword
 const filteredRows = computed<NotionDatabaseRow[]>(() => {
@@ -346,8 +328,13 @@ function getPropertyConfig(key: string): DatabasePropertyConfig | undefined {
   return database.value?.properties[key]
 }
 
-/** 导出当前数据为 xlsx 文件并触发下载 */
-async function exportXlsx() {
+/** 打开导出配置对话框 */
+function exportXlsx() {
+  openExportDialog()
+}
+
+/** 执行 xlsx 导出（使用 exportColumns 配置） */
+async function doExportXlsx() {
   if (!database.value || database.value.rows.length === 0) return
 
   try {
@@ -355,7 +342,7 @@ async function exportXlsx() {
     const JSZipMod = await import('jszip')
     const JSZip = JSZipMod.default || JSZipMod
 
-    const cols = getColumnNames()
+    const cols = exportColumns.value.filter(c => c.selected)
     const rows = filteredRows.value
     const filesCols = cols.filter(c => c.type === 'files')
 
@@ -427,7 +414,7 @@ async function exportXlsx() {
         })
       )
       if (filesCols.length > 0) {
-        excelRow.height = IMG_SIZE * 0.75
+        excelRow.height = IMG_SIZE * 0.375
       }
 
       // 图片列写入 DISPIMG 公式
@@ -598,214 +585,8 @@ async function exportXlsx() {
 
 // ── 导入 Excel ────────────────────────────────────────────
 
-const showImport = computed(() => {
-  return configStore.config.enableDbImport
-})
-
 /** 判断当前数据库是否开启导入模式 */
-const importEnabled = computed(() => {
-  return configStore.config.enableDbImport && !!props.block.id
-})
-
-function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-/** 触发文件选择 */
-function triggerImport() {
-  fileInput.value?.click()
-}
-
 /** 处理 Excel 文件导入 */
-async function handleImport(file: File) {
-  if (!database.value) return
-
-  importDrawerOpen.value = true
-  clearLogs()
-  importing.value = true
-  importProgress.value = null
-
-  const apiKey = configStore.config.apiKey
-  if (!apiKey) {
-    log('❌ 未配置 Notion Integration Token，请在配置页设置')
-    importing.value = false
-    return
-  }
-
-  try {
-    // 1. 解析 Excel（含嵌入图片）
-    log('📊 正在解析 Excel 文件...')
-    const { headers, rows, images } = await parseExcelFile(file)
-    log(`  解析完成：${headers.length} 列, ${rows.length} 行数据, ${images.size} 张嵌入图片`)
-
-    // 2. 构建 schema
-    const schema = buildDbSchema(database.value)
-
-    // 3. 列校验
-    const colErrors = validateColumns(headers, schema)
-    for (const e of colErrors) {
-      log(`⚠ ${e.message}`)
-    }
-
-    // 4. 检测 Excel 是否有 id 列
-    const idColumnKey = headers.find(h => h.toLowerCase() === 'id')
-    const existingIds = new Set<string>()
-    if (idColumnKey) {
-      for (const dbRow of database.value.rows) {
-        existingIds.add(dbRow.id.toLowerCase())
-      }
-    }
-
-    // 5. 构建已有 title 集合
-    const existingTitles = new Set<string>()
-    for (const row of database.value.rows) {
-      const titleKey = schema.titleKey
-      if (!titleKey) continue
-      const val = row.properties[titleKey]
-      if (val?.type === 'title') {
-        const t = val.title?.map(t => t.plain_text).join('') ?? ''
-        if (t) existingTitles.add(t)
-      }
-    }
-
-    // 6. 行校验
-    log('🔍 正在校验数据...')
-    const rowLogs = validateRows(rows, schema, existingTitles, { idColumnKey, existingIds })
-    for (const rl of rowLogs) {
-      const tag = { info: '·', warn: '⚠', error: '❌', success: '✅', skip: '⏭', update: '🔄' }[rl.level] || '·'
-      const prefix = rl.row ? `  R${rl.row}` : ''
-      log(`  ${tag}${prefix} ${rl.message}`)
-    }
-
-    // 7. 统计
-    const errors = rowLogs.filter(l => l.level === 'error' && l.row)
-    const skips = rowLogs.filter(l => l.level === 'skip')
-    const updates = rowLogs.filter(l => l.level === 'update')
-    const toProcess = rows.filter((_, i) => {
-      const rn = i + 1
-      return !errors.some(e => e.row === rn) && !skips.some(s => s.row === rn)
-    })
-    const toCreate = toProcess.filter((_, i) => {
-      const rn = rows.indexOf(toProcess[i]) + 1
-      return !updates.some(u => u.row === rn)
-    })
-    const toUpdate = toProcess.filter((_, i) => {
-      const rn = rows.indexOf(toProcess[i]) + 1
-      return updates.some(u => u.row === rn)
-    })
-
-    log(`📋 校验完成：${toCreate.length} 条待新增, ${toUpdate.length} 条待更新, ${skips.length} 条跳过, ${errors.length} 条有错误`)
-
-    if (toProcess.length === 0) {
-      log('⚠ 没有需要处理的数据')
-      importing.value = false
-      return
-    }
-
-    // 8. 逐行处理
-    importProgress.value = { done: 0, total: toProcess.length }
-    log(`🚀 开始处理 ${toProcess.length} 条数据（新增 ${toCreate.length}, 更新 ${toUpdate.length}）...`)
-
-    // 构建映射
-    const idToPageId = new Map<string, string>()
-    const titleToPageId = new Map<string, string>()
-    for (const dbRow of database.value.rows) {
-      idToPageId.set(dbRow.id.toLowerCase(), dbRow.id)
-      const val = dbRow.properties[schema.titleKey]
-      if (val?.type === 'title') {
-        const t = val.title?.map(t => t.plain_text).join('') ?? ''
-        if (t) titleToPageId.set(t, dbRow.id)
-      }
-    }
-
-    for (let i = 0; i < rows.length; i++) {
-      const rn = i + 1
-      if (errors.some(e => e.row === rn) || skips.some(s => s.row === rn)) continue
-
-      const row = rows[i]
-      const titleValue = row[schema.titleKey]
-      const isUpdate = updates.some(u => u.row === rn)
-
-      // 上传图片
-      const imageUrls: Record<string, string[]> = {}
-      const filesColumns = Object.keys(schema.properties).filter(k => schema.properties[k].type === 'files')
-      let uploadAborted = false
-
-      for (const col of filesColumns) {
-        const key = `${col}:${rn}`
-        const img = images.get(key)
-        if (!img) continue
-
-        await delay(2000)
-        let url: string | null = null
-        for (let attempt = 1; attempt <= 5; attempt++) {
-          url = await uploadImageForImport(img)
-          if (url) break
-          if (attempt < 5) {
-            log(`⚠ R${rn} "${titleValue}" ${col} 图片上传失败（第 ${attempt}/5 次），5s 后重试...`)
-            await delay(5000)
-          }
-        }
-
-        if (url) {
-          imageUrls[col] = [url]
-          log(`✅ R${rn} "${titleValue}" ${col} 图片上传成功`)
-          await delay(5000)
-        } else {
-          log(`❌ R${rn} "${titleValue}" ${col} 图片上传失败（已重试 5 次），终止导入`)
-          uploadAborted = true
-          break
-        }
-      }
-
-      if (uploadAborted) {
-        importing.value = false
-        return
-      }
-
-      const properties = buildNotionProperties(row, schema, imageUrls)
-      let res: { ok: boolean; error?: string }
-
-      if (isUpdate) {
-        const excelId = idColumnKey ? (row[idColumnKey] || '').trim() : ''
-        let pageId = excelId ? idToPageId.get(excelId.toLowerCase()) : undefined
-        if (!pageId) pageId = titleToPageId.get(titleValue)
-        if (!pageId) {
-          log(`❌ R${rn} "${titleValue}" 未找到已有页面 ID，跳过更新`)
-          importProgress.value.done++
-          continue
-        }
-        res = await updateDatabasePage(pageId, properties, apiKey)
-        if (res.ok) {
-          log(`🔄 R${rn} "${titleValue}" 更新成功`)
-        } else {
-          log(`❌ R${rn} "${titleValue}" 更新失败: ${res.error}`)
-        }
-      } else {
-        res = await createDatabasePage(props.block.id, properties, apiKey)
-        if (res.ok) {
-          log(`✅ R${rn} "${titleValue}" 导入成功`)
-        } else {
-          log(`❌ R${rn} "${titleValue}" 导入失败: ${res.error}`)
-        }
-      }
-
-      importProgress.value.done++
-
-      if (configStore.config.requestDelay > 0) {
-        await new Promise(resolve => setTimeout(resolve, configStore.config.requestDelay))
-      }
-    }
-
-    const successCount = importProgress.value.done - rowLogs.filter(l => l.level === 'error').length
-    log(`🎉 处理完成！成功 ${successCount} 条`)
-  } catch (e) {
-    log(`💥 ${e instanceof Error ? e.message : '导入过程异常'}`)
-  } finally {
-    importing.value = false
-    importProgress.value = null
-  }
-}
 </script>
 
 <template>
@@ -870,26 +651,6 @@ async function handleImport(file: File) {
             </svg>
             <span>{{ filterResultCount !== database.rows?.length && filteredRows.length < (database.rows?.length ?? 0) ? `导出 (${filteredRows.length})` : '导出' }}</span>
           </button>
-          <!-- Import xlsx (only when db import mode is enabled) -->
-          <button
-            v-if="showImport"
-            class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
-            style="background-color: var(--c-brand-light); color: var(--c-brand)"
-            title="从 Excel 导入数据"
-            @click.stop="triggerImport"
-          >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-            </svg>
-            <span>导入</span>
-          </button>
-          <input
-            ref="fileInput"
-            type="file"
-            accept=".xlsx,.xls"
-            class="hidden"
-            @change="(e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleImport(f); (e.target as HTMLInputElement).value = '' }"
-          />
           <div
             v-if="filterResultCount !== database.rows?.length"
             class="text-xs shrink-0"
@@ -1121,58 +882,54 @@ async function handleImport(file: File) {
       </Transition>
     </Teleport>
   </div>
-  <!-- 导入日志面板 — 终�?�式逐字输出（与同步日志一致）-->
-  <div
-    v-if="importDrawerOpen"
-    class="relative p-5 rounded-lg mt-4"
-    style="background-color: var(--c-card-bg); border: 1px solid var(--c-card-border)"
-  >
-    <div class="flex items-center justify-between mb-3">
-      <h3 class="text-base font-semibold" style="color: var(--c-text-primary)">导入日志</h3>
-      <button
-        class="text-sm px-3 py-1 rounded border-none cursor-pointer transition-colors"
-        style="color: var(--c-text-secondary); background-color: var(--c-bg-secondary)"
-        @click="importDrawerOpen = false"
-      >
-        ✕ 关闭
-      </button>
-    </div>
-
-    <!-- 进度条 -->
-    <div v-if="importProgress" class="mb-3">
-      <div class="flex items-center justify-between text-xs mb-1" style="color: var(--c-text-secondary)">
-        <span>导入进度</span>
-        <span>{{ importProgress.done }} / {{ importProgress.total }}</span>
+  
+  <!-- ── 导出配置对话框 ── -->
+  <Teleport to="body">
+    <Transition name="export-dialog-fade">
+      <div v-if="showExportDialog" class="export-dialog-overlay" @click.self="showExportDialog = false">
+        <div class="export-dialog">
+          <div class="export-dialog-header">
+            <span class="export-dialog-title">导出配置</span>
+            <button class="export-dialog-close" @click="showExportDialog = false" title="关闭">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="export-dialog-body">
+            <p class="export-dialog-desc">选择要导出的列并拖拽调整顺序。仅勾选的列会被导出。</p>
+            <div class="export-dialog-actions">
+              <button class="export-dialog-btn-sm" @click="exportColumns.forEach(c => c.selected = true)">全选</button>
+              <button class="export-dialog-btn-sm" @click="exportColumns.forEach(c => c.selected = false)">取消全选</button>
+            </div>
+            <div class="export-column-list">
+              <div v-for="(col, idx) in exportColumns" :key="col.key" class="export-column-item"
+                :class="{'export-column-dragging': exportDragIdx === idx, 'export-column-dragover': exportDragOverIdx === idx}"
+                draggable="true"
+                @dragstart="onExportDragStart(idx, $event)"
+                @dragover="onExportDragOver(idx, $event)"
+                @dragleave="onExportDragLeave"
+                @drop="onExportDrop(idx)"
+                @dragend="onExportDragEnd">
+                <span class="export-column-grip" title="拖拽排序">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="2"/><circle cx="15" cy="5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="19" r="2"/><circle cx="15" cy="19" r="2"/></svg>
+                </span>
+                <label class="export-column-label" :for="'export-col-' + idx">
+                  <input :id="'export-col-' + idx" type="checkbox" :checked="col.selected" class="export-column-checkbox" @change="toggleExportColumn(idx)">
+                  <span class="export-column-name">{{ col.name }}</span>
+                  <span class="export-column-type">{{ col.type }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="export-dialog-footer">
+            <button class="export-dialog-btn" @click="showExportDialog = false">取消</button>
+            <button class="export-dialog-btn export-dialog-btn-primary"
+              :disabled="exportColumns.filter(c => c.selected).length === 0"
+              @click="confirmExport">导出 ({{ exportColumns.filter(c => c.selected).length }} 列)</button>
+          </div>
+        </div>
       </div>
-      <div class="h-1.5 rounded-full overflow-hidden" style="background-color: var(--c-bg-secondary)">
-        <div
-          class="h-full rounded-full transition-all duration-300"
-          style="background-color: var(--c-brand)"
-          :style="{ width: (importProgress.total > 0 ? (importProgress.done / importProgress.total) * 100 : 0) + '%' }"
-        />
-      </div>
-    </div>
-
-    <!-- 日志内容 — 终�?�式 -->
-    <div
-      ref="logContainer"
-      class="rounded p-3 overflow-y-auto font-mono text-xs leading-relaxed"
-      style="height: 320px; background-color: var(--c-bg-secondary); color: var(--c-text)"
-      @mouseenter="logPaused = true"
-      @mouseleave="logPaused = false"
-    >
-      <div v-if="logLines.length === 0 && !importing" style="color: var(--c-text-secondary)">
-        暂无日志
-      </div>
-      <div
-        v-for="(line, i) in logLines"
-        :key="i"
-        class="whitespace-pre-wrap break-all"
-      >
-        {{ line }}
-      </div>
-    </div>
-  </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1198,4 +955,36 @@ async function handleImport(file: File) {
 .row-page-content :deep(.notion-block) {
   font-size: 0.875rem;
 }
+
+/* ── 导出配置对话框 ── */
+.export-dialog-overlay { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; }
+.export-dialog { background: var(--c-bg-primary); border-radius: 12px; width: 420px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+.export-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; border-bottom: 1px solid var(--c-border); }
+.export-dialog-title { font-size: 15px; font-weight: 600; color: var(--c-text); }
+.export-dialog-close { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; border-radius: 6px; background: transparent; color: var(--c-text-secondary); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.export-dialog-close:hover { background: var(--c-bg-secondary); color: var(--c-text); }
+.export-dialog-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+.export-dialog-desc { font-size: 12px; color: var(--c-text-secondary); margin: 0 0 10px; }
+.export-dialog-actions { display: flex; gap: 6px; margin-bottom: 10px; }
+.export-dialog-btn-sm { font-size: 11px; padding: 4px 10px; border: 1px solid var(--c-border); border-radius: 5px; background: var(--c-bg-secondary); color: var(--c-text-secondary); cursor: pointer; transition: background 0.15s; }
+.export-dialog-btn-sm:hover { background: var(--c-bg-tertiary); color: var(--c-text); }
+.export-column-list { display: flex; flex-direction: column; gap: 2px; max-height: 360px; overflow-y: auto; }
+.export-column-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px; transition: background 0.15s, opacity 0.15s; }
+.export-column-item:hover { background: var(--c-bg-secondary); }
+.export-column-dragging { opacity: 0.5; }
+.export-column-dragover { background: var(--c-brand-light) !important; }
+.export-column-grip { display: flex; align-items: center; cursor: grab; color: var(--c-text-tertiary); flex-shrink: 0; opacity: 0.4; transition: opacity 0.15s; }
+.export-column-grip:hover { opacity: 1; }
+.export-column-label { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; user-select: none; }
+.export-column-checkbox { width: 15px; height: 15px; accent-color: var(--c-brand); cursor: pointer; flex-shrink: 0; }
+.export-column-name { font-size: 13px; color: var(--c-text); flex: 1; }
+.export-column-type { font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--c-bg-tertiary); color: var(--c-text-tertiary); text-transform: uppercase; flex-shrink: 0; }
+.export-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid var(--c-border); }
+.export-dialog-btn { font-size: 13px; padding: 7px 18px; border: 1px solid var(--c-border); border-radius: 7px; background: var(--c-bg-primary); color: var(--c-text); cursor: pointer; transition: background 0.15s; }
+.export-dialog-btn:hover { background: var(--c-bg-secondary); }
+.export-dialog-btn-primary { background: var(--c-brand) !important; color: #fff !important; border-color: var(--c-brand) !important; font-weight: 500; }
+.export-dialog-btn-primary:hover { opacity: 0.9; }
+.export-dialog-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.export-dialog-fade-enter-active, .export-dialog-fade-leave-active { transition: opacity 200ms ease; }
+.export-dialog-fade-enter-from, .export-dialog-fade-leave-to { opacity: 0; }
 </style>
