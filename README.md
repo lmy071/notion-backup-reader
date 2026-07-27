@@ -24,6 +24,23 @@ npm run dev
 # 默认 http://localhost:5173
 ```
 
+### 代码格式化
+
+Husky pre-commit hook 会在提交前自动执行 lint-staged，对暂存文件运行 ESLint 修复 + Prettier 格式化：
+
+```bash
+# 手动触发（不依赖 commit）
+npm run lint:fix      # 格式化所有源文件
+npm run lint:check    # 仅检查不修改
+```
+
+**首次提交会跳过 hook**（配置自身就是格式化工具），提交后务必 `npm install` 安装依赖再后续提交：
+
+```bash
+# 首次提交前配置已就位，需安装依赖
+npm install
+```
+
 ### 依赖工具
 
 | 工具 | 用途 | 必须 |
