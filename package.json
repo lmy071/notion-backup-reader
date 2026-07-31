@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint:fix": "eslint src --fix && prettier --write \"src/**/*.{ts,vue,css}\"",
     "lint:check": "eslint src && prettier --check \"src/**/*.{ts,vue,css}\"",
-    "prepare": "husky"
+    "prepare": "simple-git-hooks",
+    "check": "vue-tsc --noEmit"
   },
   "dependencies": {
     "@unocss/preset-uno": "^66.7.4",
@@ -26,9 +27,17 @@
   "devDependencies": {
     "@types/katex": "^0.16.8",
     "@types/node": "^24.13.2",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
     "@vitejs/plugin-vue": "^6.0.7",
     "@vitejs/plugin-vue-jsx": "^5.1.6",
     "@vue/tsconfig": "^0.9.1",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.10.0",
+    "picocolors": "^1.1.1",
+    "prettier": "^3.9.6",
+    "simple-git-hooks": "^2.13.1",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
     "vue-tsc": "^3.3.5"
@@ -41,5 +50,9 @@
     "*.{css,scss,json,md}": [
       "prettier --write"
     ]
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm lint-staged && pnpm check",
+    "commit-msg": "node scripts/verify-commit.js"
   }
 }
