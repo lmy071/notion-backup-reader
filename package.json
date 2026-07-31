@@ -35,6 +35,7 @@
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-vue": "^10.10.0",
+    "lint-staged": "^17.2.0",
     "picocolors": "^1.1.1",
     "prettier": "^3.9.6",
     "simple-git-hooks": "^2.13.1",

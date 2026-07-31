@@ -26,7 +26,7 @@ npm run dev
 
 ### 代码格式化
 
-Husky pre-commit hook 会在提交前自动执行 lint-staged，对暂存文件运行 ESLint 修复 + Prettier 格式化：
+提交前钩子（simple-git-hooks）会在提交前自动执行 lint-staged，对暂存文件运行 ESLint 修复 + Prettier 格式化：
 
 ```bash
 # 手动触发（不依赖 commit）
