@@ -10,7 +10,8 @@
     "lint:fix": "eslint src --fix && prettier --write \"src/**/*.{ts,vue,css}\"",
     "lint:check": "eslint src && prettier --check \"src/**/*.{ts,vue,css}\"",
     "prepare": "simple-git-hooks",
-    "check": "vue-tsc --noEmit"
+    "check": "vue-tsc --noEmit",
+    "lint-staged": "lint-staged"
   },
   "dependencies": {
     "@unocss/preset-uno": "^66.7.4",
@@ -53,7 +54,7 @@
     ]
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm lint-staged && pnpm check",
+    "pre-commit": "node_modules/.bin/lint-staged && node_modules/.bin/vue-tsc --noEmit",
     "commit-msg": "node scripts/verify-commit.js"
   }
 }
