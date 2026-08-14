@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch, nextTick, type Ref } from 'vue'
-import type { NotionBlock, NotionDatabase, DatabasePropertyValue, NotionDatabaseRow, DatabasePropertyConfig, NotionPage } from '@/types/notion'
+import type {
+  NotionBlock,
+  NotionDatabase,
+  DatabasePropertyValue,
+  NotionDatabaseRow,
+  DatabasePropertyConfig,
+  NotionPage,
+} from '@/types/notion'
 import { storage } from '@/services/storage'
 import { createMcpClient } from '@/services/mcp'
 import { parseBlock } from '../../../notion-parser/index'
@@ -65,7 +72,7 @@ watch(
 )
 
 // 初始化时清空日志（HMR 保留）
-watch(importDrawerOpen, (open) => {
+watch(importDrawerOpen, open => {
   if (open) {
     clearLogs()
     logPaused.value = false
@@ -87,13 +94,42 @@ function openExportDialog() {
   exportColumns.value = getColumnNames().map(c => ({ ...c, selected: true }))
   showExportDialog.value = true
 }
-function toggleExportColumn(idx: number) { exportColumns.value[idx].selected = !exportColumns.value[idx].selected }
-function onExportDragStart(idx: number, e: DragEvent) { exportDragIdx.value = idx; if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)) } }
-function onExportDragOver(idx: number, e: DragEvent) { e.preventDefault(); exportDragOverIdx.value = idx; if (e.dataTransfer) e.dataTransfer.dropEffect = 'move' }
-function onExportDragLeave() { exportDragOverIdx.value = null }
-function onExportDrop(idx: number) { const from = exportDragIdx.value; if (from === null || from === idx) return; const items = [...exportColumns.value]; const [moved] = items.splice(from, 1); items.splice(idx, 0, moved); exportColumns.value = items; exportDragIdx.value = null; exportDragOverIdx.value = null }
-function onExportDragEnd() { exportDragIdx.value = null; exportDragOverIdx.value = null }
-function confirmExport() { showExportDialog.value = false; doExportXlsx() }
+function toggleExportColumn(idx: number) {
+  exportColumns.value[idx].selected = !exportColumns.value[idx].selected
+}
+function onExportDragStart(idx: number, e: DragEvent) {
+  exportDragIdx.value = idx
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(idx))
+  }
+}
+function onExportDragOver(idx: number, e: DragEvent) {
+  e.preventDefault()
+  exportDragOverIdx.value = idx
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+}
+function onExportDragLeave() {
+  exportDragOverIdx.value = null
+}
+function onExportDrop(idx: number) {
+  const from = exportDragIdx.value
+  if (from === null || from === idx) return
+  const items = [...exportColumns.value]
+  const [moved] = items.splice(from, 1)
+  items.splice(idx, 0, moved)
+  exportColumns.value = items
+  exportDragIdx.value = null
+  exportDragOverIdx.value = null
+}
+function onExportDragEnd() {
+  exportDragIdx.value = null
+  exportDragOverIdx.value = null
+}
+function confirmExport() {
+  showExportDialog.value = false
+  doExportXlsx()
+}
 
 // Filtered rows based on search keyword
 const filteredRows = computed<NotionDatabaseRow[]>(() => {
@@ -160,7 +196,9 @@ async function loadDatabase() {
 
 watch(
   () => [readerRootPageId?.value, readerDate?.value, props.block.id, pageDatabases?.value],
-  () => { loadDatabase() },
+  () => {
+    loadDatabase()
+  },
   { immediate: true },
 )
 
@@ -186,7 +224,9 @@ function getColumnType(colKey: string): string {
 }
 
 // Extract file items from a files property value
-function getFilesList(val: DatabasePropertyValue | undefined): Array<{ name: string; url: string }> {
+function getFilesList(
+  val: DatabasePropertyValue | undefined,
+): Array<{ name: string; url: string }> {
   if (!val || val.type !== 'files') return []
   return (val.files ?? []).map(f => ({
     name: f.name,
@@ -296,7 +336,9 @@ async function loadRowPageContent(rowId: string) {
     const client = createMcpClient(apiKey)
     const resp = await client.fetchBlockChildren(rowId, undefined)
     if (resp?.results && Array.isArray(resp.results) && resp.results.length > 0) {
-      rowPageBlocks.value = resp.results.map((b: Record<string, unknown>) => parseBlock(b as NotionBlock))
+      rowPageBlocks.value = resp.results.map((b: Record<string, unknown>) =>
+        parseBlock(b as NotionBlock),
+      )
     }
     // 空 blocks → 不展示正文区，静默
   } catch (e) {
@@ -390,7 +432,10 @@ async function doExportXlsx() {
     const filesCols = cols.filter(c => c.type === 'files')
 
     // ── 预取图片：url → { buffer, ext, localId } ──
-    const imageRegistry = new Map<string, { buffer: ArrayBuffer; ext: string; localId: number; guid: string }>()
+    const imageRegistry = new Map<
+      string,
+      { buffer: ArrayBuffer; ext: string; localId: number; guid: string }
+    >()
     let nextImageId = 1
 
     if (filesCols.length > 0) {
@@ -407,19 +452,23 @@ async function doExportXlsx() {
                   const resp = await fetch(url)
                   if (resp.ok) {
                     const buffer = await resp.arrayBuffer()
-                    const ext = (url.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'png')
+                    const ext = url.split('.').pop()?.split('?')[0]?.toLowerCase() ?? 'png'
                     // SHA-256 整个图片 buffer 生成唯一 GUID（PNG 前 16 字节全部相同）
                     const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
-                    const guid = 'ID_' + Array.from(new Uint8Array(hashBuffer))
-                      .map(b => b.toString(16).padStart(2, '0'))
-                      .join('')
-                      .toUpperCase()
+                    const guid =
+                      'ID_' +
+                      Array.from(new Uint8Array(hashBuffer))
+                        .map(b => b.toString(16).padStart(2, '0'))
+                        .join('')
+                        .toUpperCase()
                     imageRegistry.set(url, { buffer, ext, localId: nextImageId++, guid })
                   }
-                } catch { /* image fetch failed, skip */ }
+                } catch {
+                  /* image fetch failed, skip */
+                }
               })
-          })
-        )
+          }),
+        ),
       )
     }
 
@@ -437,7 +486,8 @@ async function doExportXlsx() {
     })
 
     // ── 构建 GUID 查找（已在 fetch 阶段计算好） ──
-    const imageEntries: Array<{ guid: string; ext: string; buffer: ArrayBuffer; localId: number }> = []
+    const imageEntries: Array<{ guid: string; ext: string; buffer: ArrayBuffer; localId: number }> =
+      []
     const imageGuidMap = new Map<string, string>() // url → GUID
     for (const [url, info] of imageRegistry) {
       imageEntries.push(info)
@@ -454,7 +504,7 @@ async function doExportXlsx() {
             return (val.files ?? []).map(f => f.name).join('\n')
           }
           return getCellText(val)
-        })
+        }),
       )
       if (filesCols.length > 0) {
         excelRow.height = IMG_SIZE * 0.375
@@ -526,7 +576,7 @@ async function doExportXlsx() {
       ]
       for (const entry of imageEntries) {
         relsLines.push(
-          `  <Relationship Id="rId${entry.localId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${entry.localId}.${entry.ext}"/>`
+          `  <Relationship Id="rId${entry.localId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${entry.localId}.${entry.ext}"/>`,
         )
       }
       relsLines.push('</Relationships>')
@@ -559,7 +609,7 @@ async function doExportXlsx() {
           `        <a:noFill/><a:ln w="9525"><a:noFill/></a:ln>`,
           `      </xdr:spPr>`,
           `    </xdr:pic>`,
-          `  </etc:cellImage>`
+          `  </etc:cellImage>`,
         )
         cNvPrId += 2
       }
@@ -586,7 +636,7 @@ async function doExportXlsx() {
         const nextRId = maxRId + 1
         const updatedRels = wbRelsXml.replace(
           '</Relationships>',
-          `  <Relationship Id="rId${nextRId}" Type="http://www.wps.cn/officeDocument/2020/cellImage" Target="cellimages.xml"/>\n</Relationships>`
+          `  <Relationship Id="rId${nextRId}" Type="http://www.wps.cn/officeDocument/2020/cellImage" Target="cellimages.xml"/>\n</Relationships>`,
         )
         zip.file('xl/_rels/workbook.xml.rels', updatedRels)
       }
@@ -600,12 +650,14 @@ async function doExportXlsx() {
         ]
         for (const entry of imageEntries) {
           if (!contentTypesXml.includes(`Extension="${entry.ext}"`)) {
-            extraParts.push(`<Default Extension="${entry.ext}" ContentType="image/${entry.ext === 'jpg' ? 'jpeg' : entry.ext}"/>`)
+            extraParts.push(
+              `<Default Extension="${entry.ext}" ContentType="image/${entry.ext === 'jpg' ? 'jpeg' : entry.ext}"/>`,
+            )
           }
         }
         const updatedContentTypes = contentTypesXml.replace(
           '</Types>',
-          [...new Set(extraParts)].join('\n') + '\n</Types>'
+          [...new Set(extraParts)].join('\n') + '\n</Types>',
         )
         zip.file('[Content_Types].xml', updatedContentTypes)
       }
@@ -614,7 +666,9 @@ async function doExportXlsx() {
     // ── 下载 ──
     const finalBuffer = await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' })
     const fileName = `${(database.value.title || 'export').replace(/[\\/:*?"<>|]/g, '_')}.xlsx`
-    const blob = new Blob([finalBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const blob = new Blob([finalBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
     link.download = fileName
@@ -702,7 +756,9 @@ async function handleImport(file: File) {
     log('🔍 正在校验数据...')
     const rowLogs = validateRows(rows, schema, existingTitles, { idColumnKey, existingIds })
     for (const rl of rowLogs) {
-      const tag = { info: '·', warn: '⚠', error: '❌', success: '✅', skip: '⏭', update: '🔄' }[rl.level] || '·'
+      const tag =
+        { info: '·', warn: '⚠', error: '❌', success: '✅', skip: '⏭', update: '🔄' }[rl.level] ||
+        '·'
       const prefix = rl.row ? `  R${rl.row}` : ''
       log(`  ${tag}${prefix} ${rl.message}`)
     }
@@ -724,7 +780,9 @@ async function handleImport(file: File) {
       return updates.some(u => u.row === rn)
     })
 
-    log(`📋 校验完成：${toCreate.length} 条待新增, ${toUpdate.length} 条待更新, ${skips.length} 条跳过, ${errors.length} 条有错误`)
+    log(
+      `📋 校验完成：${toCreate.length} 条待新增, ${toUpdate.length} 条待更新, ${skips.length} 条跳过, ${errors.length} 条有错误`,
+    )
 
     if (toProcess.length === 0) {
       log('⚠ 没有需要处理的数据')
@@ -734,7 +792,9 @@ async function handleImport(file: File) {
 
     // 8. 逐行处理
     importProgress.value = { done: 0, total: toProcess.length }
-    log(`🚀 开始处理 ${toProcess.length} 条数据（新增 ${toCreate.length}, 更新 ${toUpdate.length}）...`)
+    log(
+      `🚀 开始处理 ${toProcess.length} 条数据（新增 ${toCreate.length}, 更新 ${toUpdate.length}）...`,
+    )
 
     // 构建映射
     const idToPageId = new Map<string, string>()
@@ -758,7 +818,9 @@ async function handleImport(file: File) {
 
       // 上传图片
       const imageUrls: Record<string, string[]> = {}
-      const filesColumns = Object.keys(schema.properties).filter(k => schema.properties[k].type === 'files')
+      const filesColumns = Object.keys(schema.properties).filter(
+        k => schema.properties[k].type === 'files',
+      )
       let uploadAborted = false
 
       for (const col of filesColumns) {
@@ -766,7 +828,7 @@ async function handleImport(file: File) {
         const img = images.get(key)
         if (!img) continue
 
-        await delay(2000)
+        await delay(1000)
         let url: string | null = null
         for (let attempt = 1; attempt <= 5; attempt++) {
           url = await uploadImageForImport(img)
@@ -780,7 +842,7 @@ async function handleImport(file: File) {
         if (url) {
           imageUrls[col] = [url]
           log(`✅ R${rn} "${titleValue}" ${col} 图片上传成功`)
-          await delay(5000)
+          await delay(100)
         } else {
           log(`❌ R${rn} "${titleValue}" ${col} 图片上传失败（已重试 5 次），终止导入`)
           uploadAborted = true
@@ -841,19 +903,38 @@ async function handleImport(file: File) {
 <template>
   <div class="my-4">
     <!-- Loading skeleton -->
-    <div v-if="loading" class="overflow-x-auto rounded-lg" style="border: 1px solid var(--c-table-border)">
+    <div
+      v-if="loading"
+      class="overflow-x-auto rounded-lg"
+      style="border: 1px solid var(--c-table-border)"
+    >
       <table class="w-full border-collapse">
         <thead>
           <tr style="background-color: var(--c-table-header-bg)">
-            <th v-for="i in 3" :key="i" class="px-4 py-3 text-left text-sm font-medium" style="color: var(--c-text-secondary)">
-              <div class="h-4 rounded animate-pulse" style="width: 80px; background-color: var(--c-border)" />
+            <th
+              v-for="i in 3"
+              :key="i"
+              class="px-4 py-3 text-left text-sm font-medium"
+              style="color: var(--c-text-secondary)"
+            >
+              <div
+                class="h-4 rounded animate-pulse"
+                style="width: 80px; background-color: var(--c-border)"
+              />
             </th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="i in 3" :key="i" :style="{ borderTop: i > 1 ? '1px solid var(--c-table-border)' : 'none' }">
+          <tr
+            v-for="i in 3"
+            :key="i"
+            :style="{ borderTop: i > 1 ? '1px solid var(--c-table-border)' : 'none' }"
+          >
             <td v-for="j in 3" :key="j" class="px-4 py-2">
-              <div class="h-3 rounded animate-pulse" style="width: 60px; background-color: var(--c-border)" />
+              <div
+                class="h-3 rounded animate-pulse"
+                style="width: 60px; background-color: var(--c-border)"
+              />
             </td>
           </tr>
         </tbody>
@@ -861,12 +942,24 @@ async function handleImport(file: File) {
     </div>
 
     <!-- Error state -->
-    <div v-else-if="error" class="p-4 rounded-lg text-sm" style="color: var(--c-text-tertiary); background-color: var(--c-bg-secondary)">
+    <div
+      v-else-if="error"
+      class="p-4 rounded-lg text-sm"
+      style="color: var(--c-text-tertiary); background-color: var(--c-bg-secondary)"
+    >
       ⚠️ 数据库加载失败: {{ error }}
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="!database?.rows?.length" class="p-4 rounded-lg text-sm text-center" style="color: var(--c-text-tertiary); background-color: var(--c-bg-secondary); border: 1px solid var(--c-border)">
+    <div
+      v-else-if="!database?.rows?.length"
+      class="p-4 rounded-lg text-sm text-center"
+      style="
+        color: var(--c-text-tertiary);
+        background-color: var(--c-bg-secondary);
+        border: 1px solid var(--c-border);
+      "
+    >
       📊 空数据库
     </div>
 
@@ -875,7 +968,10 @@ async function handleImport(file: File) {
       <!-- Database title bar -->
       <div
         class="flex items-center justify-between px-4 py-2"
-        style="background-color: var(--c-table-header-bg); border-bottom: 1px solid var(--c-table-border)"
+        style="
+          background-color: var(--c-table-header-bg);
+          border-bottom: 1px solid var(--c-table-border);
+        "
       >
         <span
           v-if="database.title"
@@ -896,9 +992,19 @@ async function handleImport(file: File) {
             @click.stop="exportXlsx"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              />
             </svg>
-            <span>{{ filterResultCount !== database.rows?.length && filteredRows.length < (database.rows?.length ?? 0) ? `导出 (${filteredRows.length})` : '导出' }}</span>
+            <span>{{
+              filterResultCount !== database.rows?.length &&
+              filteredRows.length < (database.rows?.length ?? 0)
+                ? `导出 (${filteredRows.length})`
+                : '导出'
+            }}</span>
           </button>
           <!-- Import xlsx (only when db import mode is enabled) -->
           <button
@@ -909,7 +1015,12 @@ async function handleImport(file: File) {
             @click.stop="triggerImport"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+              />
             </svg>
             <span>导入</span>
           </button>
@@ -918,7 +1029,13 @@ async function handleImport(file: File) {
             type="file"
             accept=".xlsx,.xls"
             class="hidden"
-            @change="(e: Event) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) handleImport(f); (e.target as HTMLInputElement).value = '' }"
+            @change="
+              (e: Event) => {
+                const f = (e.target as HTMLInputElement).files?.[0]
+                if (f) handleImport(f)
+                ;(e.target as HTMLInputElement).value = ''
+              }
+            "
           />
           <div
             v-if="filterResultCount !== database.rows?.length"
@@ -960,7 +1077,10 @@ async function handleImport(file: File) {
                 v-for="col in getColumnNames()"
                 :key="col.key"
                 class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
-                style="color: var(--c-text-secondary); border-bottom: 2px solid var(--c-table-border)"
+                style="
+                  color: var(--c-text-secondary);
+                  border-bottom: 2px solid var(--c-table-border);
+                "
               >
                 {{ col.name }}
               </th>
@@ -1042,7 +1162,7 @@ async function handleImport(file: File) {
         <div
           v-if="drawerOpen"
           class="fixed inset-0 z-40"
-          style="background-color: rgba(0,0,0,0.3)"
+          style="background-color: rgba(0, 0, 0, 0.3)"
           @click="closeDrawer"
         />
       </Transition>
@@ -1051,14 +1171,20 @@ async function handleImport(file: File) {
         <div
           v-if="drawerOpen"
           class="fixed top-0 right-0 h-full z-50 flex flex-col shadow-2xl"
-          style="width: 40%; min-width: 360px; max-width: 90vw; background-color: var(--c-bg);"
+          style="width: 40%; min-width: 360px; max-width: 90vw; background-color: var(--c-bg)"
         >
           <!-- Header -->
           <div
             class="flex items-center justify-between px-6 py-4 shrink-0"
-            style="border-bottom: 1px solid var(--c-border); background-color: var(--c-bg-secondary)"
+            style="
+              border-bottom: 1px solid var(--c-border);
+              background-color: var(--c-bg-secondary);
+            "
           >
-            <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--c-text-secondary)">
+            <h3
+              class="text-sm font-semibold uppercase tracking-wider"
+              style="color: var(--c-text-secondary)"
+            >
               行详情
             </h3>
             <button
@@ -1067,7 +1193,12 @@ async function handleImport(file: File) {
               @click="closeDrawer"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
               </svg>
             </button>
           </div>
@@ -1082,10 +1213,16 @@ async function handleImport(file: File) {
                   class="flex py-3"
                   :style="{ borderBottom: '1px solid var(--c-border-light)' }"
                 >
-                  <dt class="w-32 shrink-0 text-xs font-medium uppercase tracking-wide pt-0.5" style="color: var(--c-text-tertiary)">
+                  <dt
+                    class="w-32 shrink-0 text-xs font-medium uppercase tracking-wide pt-0.5"
+                    style="color: var(--c-text-tertiary)"
+                  >
                     {{ col.name }}
                   </dt>
-                  <dd class="flex-1 min-w-0 text-sm leading-relaxed" :style="{ color: 'var(--c-text)' }">
+                  <dd
+                    class="flex-1 min-w-0 text-sm leading-relaxed"
+                    :style="{ color: 'var(--c-text)' }"
+                  >
                     <!-- files type: show images in drawer -->
                     <template v-if="getColumnType(col.key) === 'files'">
                       <div class="flex flex-wrap gap-2">
@@ -1130,14 +1267,31 @@ async function handleImport(file: File) {
               </dl>
 
               <!-- 行页面正文内容 -->
-              <div v-if="rowPageLoading" class="text-sm text-center py-4" style="color: var(--c-text-tertiary)">
+              <div
+                v-if="rowPageLoading"
+                class="text-sm text-center py-4"
+                style="color: var(--c-text-tertiary)"
+              >
                 加载正文中...
               </div>
-              <div v-else-if="rowPageError" class="text-sm text-center py-4" style="color: var(--c-text-tertiary)">
+              <div
+                v-else-if="rowPageError"
+                class="text-sm text-center py-4"
+                style="color: var(--c-text-tertiary)"
+              >
                 {{ rowPageError }}
               </div>
-              <div v-else-if="rowPageBlocks.length > 0" class="mt-4 pt-4" style="border-top: 2px solid var(--c-border)">
-                <h3 class="text-xs font-semibold uppercase tracking-wide mb-3" style="color: var(--c-text-tertiary)">正文内容</h3>
+              <div
+                v-else-if="rowPageBlocks.length > 0"
+                class="mt-4 pt-4"
+                style="border-top: 2px solid var(--c-border)"
+              >
+                <h3
+                  class="text-xs font-semibold uppercase tracking-wide mb-3"
+                  style="color: var(--c-text-tertiary)"
+                >
+                  正文内容
+                </h3>
                 <div class="row-page-content">
                   <NotionRenderer :blocks="rowPageBlocks" />
                 </div>
@@ -1170,15 +1324,25 @@ async function handleImport(file: File) {
 
     <!-- 进度条 -->
     <div v-if="importProgress" class="mb-3">
-      <div class="flex items-center justify-between text-xs mb-1" style="color: var(--c-text-secondary)">
+      <div
+        class="flex items-center justify-between text-xs mb-1"
+        style="color: var(--c-text-secondary)"
+      >
         <span>导入进度</span>
         <span>{{ importProgress.done }} / {{ importProgress.total }}</span>
       </div>
-      <div class="h-1.5 rounded-full overflow-hidden" style="background-color: var(--c-bg-secondary)">
+      <div
+        class="h-1.5 rounded-full overflow-hidden"
+        style="background-color: var(--c-bg-secondary)"
+      >
         <div
           class="h-full rounded-full transition-all duration-300"
           style="background-color: var(--c-brand)"
-          :style="{ width: (importProgress.total > 0 ? (importProgress.done / importProgress.total) * 100 : 0) + '%' }"
+          :style="{
+            width:
+              (importProgress.total > 0 ? (importProgress.done / importProgress.total) * 100 : 0) +
+              '%',
+          }"
         />
       </div>
     </div>
@@ -1194,11 +1358,7 @@ async function handleImport(file: File) {
       <div v-if="logLines.length === 0 && !importing" style="color: var(--c-text-secondary)">
         暂无日志
       </div>
-      <div
-        v-for="(line, i) in logLines"
-        :key="i"
-        class="whitespace-pre-wrap break-all"
-      >
+      <div v-for="(line, i) in logLines" :key="i" class="whitespace-pre-wrap break-all">
         {{ line }}
       </div>
     </div>
@@ -1207,34 +1367,79 @@ async function handleImport(file: File) {
   <!-- ── 导出配置对话框 ── -->
   <Teleport to="body">
     <Transition name="export-dialog-fade">
-      <div v-if="showExportDialog" class="export-dialog-overlay" @click.self="showExportDialog = false">
+      <div
+        v-if="showExportDialog"
+        class="export-dialog-overlay"
+        @click.self="showExportDialog = false"
+      >
         <div class="export-dialog">
           <div class="export-dialog-header">
             <span class="export-dialog-title">导出配置</span>
-            <button class="export-dialog-close" @click="showExportDialog = false" title="关闭">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <button class="export-dialog-close" title="关闭" @click="showExportDialog = false">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
             </button>
           </div>
           <div class="export-dialog-body">
             <p class="export-dialog-desc">选择要导出的列并拖拽调整顺序。仅勾选的列会被导出。</p>
             <div class="export-dialog-actions">
-              <button class="export-dialog-btn-sm" @click="exportColumns.forEach(c => c.selected = true)">全选</button>
-              <button class="export-dialog-btn-sm" @click="exportColumns.forEach(c => c.selected = false)">取消全选</button>
+              <button
+                class="export-dialog-btn-sm"
+                @click="exportColumns.forEach(c => (c.selected = true))"
+              >
+                全选
+              </button>
+              <button
+                class="export-dialog-btn-sm"
+                @click="exportColumns.forEach(c => (c.selected = false))"
+              >
+                取消全选
+              </button>
             </div>
             <div class="export-column-list">
-              <div v-for="(col, idx) in exportColumns" :key="col.key" class="export-column-item"
-                :class="{'export-column-dragging': exportDragIdx === idx, 'export-column-dragover': exportDragOverIdx === idx}"
+              <div
+                v-for="(col, idx) in exportColumns"
+                :key="col.key"
+                class="export-column-item"
+                :class="{
+                  'export-column-dragging': exportDragIdx === idx,
+                  'export-column-dragover': exportDragOverIdx === idx,
+                }"
                 draggable="true"
                 @dragstart="onExportDragStart(idx, $event)"
                 @dragover="onExportDragOver(idx, $event)"
                 @dragleave="onExportDragLeave"
                 @drop="onExportDrop(idx)"
-                @dragend="onExportDragEnd">
+                @dragend="onExportDragEnd"
+              >
                 <span class="export-column-grip" title="拖拽排序">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="5" r="2"/><circle cx="15" cy="5" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="19" r="2"/><circle cx="15" cy="19" r="2"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="9" cy="5" r="2" />
+                    <circle cx="15" cy="5" r="2" />
+                    <circle cx="9" cy="12" r="2" />
+                    <circle cx="15" cy="12" r="2" />
+                    <circle cx="9" cy="19" r="2" />
+                    <circle cx="15" cy="19" r="2" />
+                  </svg>
                 </span>
                 <label class="export-column-label" :for="'export-col-' + idx">
-                  <input :id="'export-col-' + idx" type="checkbox" :checked="col.selected" class="export-column-checkbox" @change="toggleExportColumn(idx)">
+                  <input
+                    :id="'export-col-' + idx"
+                    type="checkbox"
+                    :checked="col.selected"
+                    class="export-column-checkbox"
+                    @change="toggleExportColumn(idx)"
+                  />
                   <span class="export-column-name">{{ col.name }}</span>
                   <span class="export-column-type">{{ col.type }}</span>
                 </label>
@@ -1243,9 +1448,13 @@ async function handleImport(file: File) {
           </div>
           <div class="export-dialog-footer">
             <button class="export-dialog-btn" @click="showExportDialog = false">取消</button>
-            <button class="export-dialog-btn export-dialog-btn-primary"
+            <button
+              class="export-dialog-btn export-dialog-btn-primary"
               :disabled="exportColumns.filter(c => c.selected).length === 0"
-              @click="confirmExport">导出 ({{ exportColumns.filter(c => c.selected).length }} 列)</button>
+              @click="confirmExport"
+            >
+              导出 ({{ exportColumns.filter(c => c.selected).length }} 列)
+            </button>
           </div>
         </div>
       </div>
@@ -1278,34 +1487,190 @@ async function handleImport(file: File) {
 }
 
 /* ── 导出配置对话框 ── */
-.export-dialog-overlay { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; }
-.export-dialog { background: var(--c-bg-primary); border-radius: 12px; width: 420px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
-.export-dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px 12px; border-bottom: 1px solid var(--c-border); }
-.export-dialog-title { font-size: 15px; font-weight: 600; color: var(--c-text); }
-.export-dialog-close { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: none; border-radius: 6px; background: transparent; color: var(--c-text-secondary); cursor: pointer; transition: background 0.15s, color 0.15s; }
-.export-dialog-close:hover { background: var(--c-bg-secondary); color: var(--c-text); }
-.export-dialog-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
-.export-dialog-desc { font-size: 12px; color: var(--c-text-secondary); margin: 0 0 10px; }
-.export-dialog-actions { display: flex; gap: 6px; margin-bottom: 10px; }
-.export-dialog-btn-sm { font-size: 11px; padding: 4px 10px; border: 1px solid var(--c-border); border-radius: 5px; background: var(--c-bg-secondary); color: var(--c-text-secondary); cursor: pointer; transition: background 0.15s; }
-.export-dialog-btn-sm:hover { background: var(--c-bg-tertiary); color: var(--c-text); }
-.export-column-list { display: flex; flex-direction: column; gap: 2px; max-height: 360px; overflow-y: auto; }
-.export-column-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 6px; transition: background 0.15s, opacity 0.15s; }
-.export-column-item:hover { background: var(--c-bg-secondary); }
-.export-column-dragging { opacity: 0.5; }
-.export-column-dragover { background: var(--c-brand-light) !important; }
-.export-column-grip { display: flex; align-items: center; cursor: grab; color: var(--c-text-tertiary); flex-shrink: 0; opacity: 0.4; transition: opacity 0.15s; }
-.export-column-grip:hover { opacity: 1; }
-.export-column-label { display: flex; align-items: center; gap: 8px; flex: 1; cursor: pointer; user-select: none; }
-.export-column-checkbox { width: 15px; height: 15px; accent-color: var(--c-brand); cursor: pointer; flex-shrink: 0; }
-.export-column-name { font-size: 13px; color: var(--c-text); flex: 1; }
-.export-column-type { font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--c-bg-tertiary); color: var(--c-text-tertiary); text-transform: uppercase; flex-shrink: 0; }
-.export-dialog-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px 16px; border-top: 1px solid var(--c-border); }
-.export-dialog-btn { font-size: 13px; padding: 7px 18px; border: 1px solid var(--c-border); border-radius: 7px; background: var(--c-bg-primary); color: var(--c-text); cursor: pointer; transition: background 0.15s; }
-.export-dialog-btn:hover { background: var(--c-bg-secondary); }
-.export-dialog-btn-primary { background: var(--c-brand) !important; color: #fff !important; border-color: var(--c-brand) !important; font-weight: 500; }
-.export-dialog-btn-primary:hover { opacity: 0.9; }
-.export-dialog-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-.export-dialog-fade-enter-active, .export-dialog-fade-leave-active { transition: opacity 200ms ease; }
-.export-dialog-fade-enter-from, .export-dialog-fade-leave-to { opacity: 0; }
+.export-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.export-dialog {
+  background: var(--c-bg-primary);
+  border-radius: 12px;
+  width: 420px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+.export-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+.export-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.export-dialog-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.export-dialog-close:hover {
+  background: var(--c-bg-secondary);
+  color: var(--c-text);
+}
+.export-dialog-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.export-dialog-desc {
+  font-size: 12px;
+  color: var(--c-text-secondary);
+  margin: 0 0 10px;
+}
+.export-dialog-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.export-dialog-btn-sm {
+  font-size: 11px;
+  padding: 4px 10px;
+  border: 1px solid var(--c-border);
+  border-radius: 5px;
+  background: var(--c-bg-secondary);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.export-dialog-btn-sm:hover {
+  background: var(--c-bg-tertiary);
+  color: var(--c-text);
+}
+.export-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.export-column-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  transition:
+    background 0.15s,
+    opacity 0.15s;
+}
+.export-column-item:hover {
+  background: var(--c-bg-secondary);
+}
+.export-column-dragging {
+  opacity: 0.5;
+}
+.export-column-dragover {
+  background: var(--c-brand-light) !important;
+}
+.export-column-grip {
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  color: var(--c-text-tertiary);
+  flex-shrink: 0;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+}
+.export-column-grip:hover {
+  opacity: 1;
+}
+.export-column-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.export-column-checkbox {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--c-brand);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.export-column-name {
+  font-size: 13px;
+  color: var(--c-text);
+  flex: 1;
+}
+.export-column-type {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--c-bg-tertiary);
+  color: var(--c-text-tertiary);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.export-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 16px;
+  border-top: 1px solid var(--c-border);
+}
+.export-dialog-btn {
+  font-size: 13px;
+  padding: 7px 18px;
+  border: 1px solid var(--c-border);
+  border-radius: 7px;
+  background: var(--c-bg-primary);
+  color: var(--c-text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.export-dialog-btn:hover {
+  background: var(--c-bg-secondary);
+}
+.export-dialog-btn-primary {
+  background: var(--c-brand) !important;
+  color: #fff !important;
+  border-color: var(--c-brand) !important;
+  font-weight: 500;
+}
+.export-dialog-btn-primary:hover {
+  opacity: 0.9;
+}
+.export-dialog-btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.export-dialog-fade-enter-active,
+.export-dialog-fade-leave-active {
+  transition: opacity 200ms ease;
+}
+.export-dialog-fade-enter-from,
+.export-dialog-fade-leave-to {
+  opacity: 0;
+}
 </style>
