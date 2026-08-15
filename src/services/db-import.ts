@@ -4,11 +4,14 @@
  * 功能：
  * 1. 解析 Excel 文件（ExcelJS，格式与导出一致），含嵌入图片提取
  * 2. 验证 Excel 列是否与 Notion 数据库属性匹配
- * 3. 识别已有行（按 title 列去重，支持增量导入）
+ * 3. 识别已有行（按 title 列去重）
  * 4. 通过 Notion API 逐行创建/更新页面
  *
+ * 导入模式：
+ * - 增量导入：仅新增不存在的行（按 title / id 列去重，不更新已有行）
+ * - 覆盖导入：先清空数据库全部行（archive），再重新导入 Excel 全部数据
+ *
  * 限制：
- * - 仅支持增量导入（不更新已有行，只新增不存在的行）
  * - files 类型列需 Excel 单元格内嵌入图片
  * - 不支持 people / formula 等复杂类型
  */
@@ -198,18 +201,16 @@ async function parseMergeCells(
         result.set(`${ci}:${r}`, startRow)
       }
     }
-  } catch { /* 解析失败不影响导入 */ }
+  } catch {
+    /* 解析失败不影响导入 */
+  }
   return result
 }
 
 /**
  * 提取工作表中的浮动/嵌入图片（ExcelJS getImages）。
  */
-function extractFloatingImages(
-  ws: any,
-  wb: any,
-  headers: string[],
-): Map<string, BufferedImage> {
+function extractFloatingImages(ws: any, wb: any, headers: string[]): Map<string, BufferedImage> {
   const result = new Map<string, BufferedImage>()
 
   try {
@@ -225,19 +226,34 @@ function extractFloatingImages(
       if (tl.nativeRow < 1) continue // 跳过表头行
       if (tl.nativeCol < 0 || tl.nativeCol >= headers.length) continue
 
-      const wbImg = wb.getImage(img.imageId) as { buffer?: { buffer: ArrayBuffer; byteOffset: number; length: number }; extension?: string } | undefined
+      const wbImg = wb.getImage(img.imageId) as
+        | {
+            buffer?: { buffer: ArrayBuffer; byteOffset: number; length: number }
+            extension?: string
+          }
+        | undefined
       if (!wbImg?.buffer) continue
 
       const ext = (wbImg.extension || 'png').toLowerCase()
-      const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml' }
+      const mimeMap: Record<string, string> = {
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif',
+        webp: 'image/webp',
+        bmp: 'image/bmp',
+        svg: 'image/svg+xml',
+      }
 
       result.set(`${headers[tl.nativeCol]}:${tl.nativeRow}`, {
-        buffer: (wbImg.buffer as unknown as ArrayBuffer),
+        buffer: wbImg.buffer as unknown as ArrayBuffer,
         extension: ext,
         mimeType: mimeMap[ext] || 'application/octet-stream',
       })
     }
-  } catch { /* 图片提取失败不阻塞导入 */ }
+  } catch {
+    /* 图片提取失败不阻塞导入 */
+  }
 
   return result
 }
@@ -267,7 +283,8 @@ async function extractCellImages(
 
     // 解析 imageId → rId
     const idToRId: Record<string, string> = {}
-    const idRegex = /cNvPr[^>]*name="(ID_[^"]+)"[^>]*\/>\s*<[^>]*cNvPicPr[\s\S]*?a:blip[^>]*r:embed="(rId\d+)"/g
+    const idRegex =
+      /cNvPr[^>]*name="(ID_[^"]+)"[^>]*\/>\s*<[^>]*cNvPicPr[\s\S]*?a:blip[^>]*r:embed="(rId\d+)"/g
     let m: RegExpExecArray | null
     while ((m = idRegex.exec(cellImagesXml)) !== null) {
       idToRId[m[1]] = m[2]
@@ -303,7 +320,14 @@ async function extractCellImages(
 
         const imageBuffer = await mediaFile.async('arraybuffer')
         const ext = mediaPath.split('.').pop()?.toLowerCase() || 'png'
-        const mimeMap: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' }
+        const mimeMap: Record<string, string> = {
+          png: 'image/png',
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          gif: 'image/gif',
+          webp: 'image/webp',
+          bmp: 'image/bmp',
+        }
 
         result.set(`${colKey}:${rowIndex}`, {
           buffer: imageBuffer,
@@ -312,7 +336,9 @@ async function extractCellImages(
         })
       }
     }
-  } catch { /* cell image 提取失败不阻塞导入 */ }
+  } catch {
+    /* cell image 提取失败不阻塞导入 */
+  }
 
   return result
 }
@@ -338,10 +364,7 @@ export function buildDbSchema(database: NotionDatabase): DbSchema {
  * 验证 Excel 列与数据库属性是否匹配。
  * 返回警告列表（不阻塞导入）。
  */
-export function validateColumns(
-  excelHeaders: string[],
-  schema: DbSchema,
-): ValidationError[] {
+export function validateColumns(excelHeaders: string[], schema: DbSchema): ValidationError[] {
   const errors: ValidationError[] = []
   const schemaKeys = Object.keys(schema.properties)
 
@@ -407,9 +430,7 @@ export function validateRows(
     const idKey = options?.idColumnKey
     const existingIds = options?.existingIds
     const idValue = idKey ? (row[idKey] || '').trim() : ''
-    const idMatch = idKey && existingIds && idValue
-      ? existingIds.has(idValue.toLowerCase())
-      : false
+    const idMatch = idKey && existingIds && idValue ? existingIds.has(idValue.toLowerCase()) : false
     const titleMatch = existingTitles.has(titleValue)
 
     if (idMatch || titleMatch) {
@@ -469,7 +490,14 @@ export function validateRows(
 
       if (prop.type === 'checkbox') {
         const lower = value.toLowerCase()
-        if (value && lower !== '✓' && lower !== 'true' && lower !== 'false' && lower !== 'yes' && lower !== 'no') {
+        if (
+          value &&
+          lower !== '✓' &&
+          lower !== 'true' &&
+          lower !== 'false' &&
+          lower !== 'yes' &&
+          lower !== 'no'
+        ) {
           logs.push({
             level: 'warn',
             message: `${col} 应为布尔值，实际为 "${value}"`,
@@ -538,7 +566,10 @@ export function buildNotionProperties(
         break
       case 'multi_select':
         if (value) {
-          const names = value.split(/[,，]/).map(s => s.trim()).filter(Boolean)
+          const names = value
+            .split(/[,，]/)
+            .map(s => s.trim())
+            .filter(Boolean)
           properties[col] = {
             multi_select: names.map(n => ({ name: n })),
           }
@@ -685,17 +716,61 @@ export async function updateDatabasePage(
   }
 }
 
-// ── 图片上传（开发模式）─────────────────────────────────────
+/**
+ * 清空数据库全部行（逐行 archive）。
+ * 覆盖导入的第一步：删除数据库现有数据后重新导入。
+ * 通过中间件 /api/notion/clear-database 代理（绕 CORS）。
+ */
+export async function clearDatabase(
+  databaseId: string,
+  apiKey: string,
+): Promise<{
+  ok: boolean
+  archived?: number
+  total?: number
+  errors?: Array<{ pageId: string; error: string }>
+  error?: string
+}> {
+  try {
+    const res = await fetch('/api/notion/clear-database', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Notion-Token': apiKey,
+      },
+      body: JSON.stringify({ databaseId }),
+    })
 
+    if (!res.ok) {
+      const err = await res.text()
+      return { ok: false, error: `${res.status}: ${err}` }
+    }
+
+    const json = (await res.json()) as {
+      ok?: boolean
+      archived?: number
+      total?: number
+      errors?: Array<{ pageId: string; error: string }>
+    }
+    return {
+      ok: json.ok ?? false,
+      archived: json.archived,
+      total: json.total,
+      errors: json.errors,
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+// ── 图片上传（开发模式）─────────────────────────────────────
 /**
  * 将 BufferedImage 通过 PicList 本地服务上传到已配图床（如 Gitee），
  * 获取公网可达的图片 URL（Notion files 属性 external.url 要求公网可达）。
  * 返回公网 URL，失败时返回 null。
  * 前提：PicList 需后台运行，默认端口 36677。
  */
-export async function uploadImageForImport(
-  image: BufferedImage,
-): Promise<string | null> {
+export async function uploadImageForImport(image: BufferedImage): Promise<string | null> {
   // 用时间戳生成唯一文件名，避免 Gitee 同名文件冲突
   const uniqueId = Date.now()
   const blob = new Blob([image.buffer], { type: image.mimeType })
@@ -708,7 +783,7 @@ export async function uploadImageForImport(
       body: form,
     })
     if (!res.ok) return null
-    const json = await res.json() as { result?: string[] }
+    const json = (await res.json()) as { result?: string[] }
     if (json.result?.[0]) return json.result[0]
     return null
   } catch {

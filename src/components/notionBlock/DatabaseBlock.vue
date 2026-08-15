@@ -22,6 +22,7 @@ import {
   buildNotionProperties,
   createDatabasePage,
   updateDatabasePage,
+  clearDatabase,
   uploadImageForImport,
 } from '@/services/db-import'
 import { useImportLog } from '@/composables/useImportLog'
@@ -695,13 +696,23 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-/** 触发文件选择 */
-function triggerImport() {
+/** 当前导入模式：incremental = 增量导入（默认），overwrite = 覆盖导入（先清空再全量导入） */
+const importMode = ref<'incremental' | 'overwrite'>('incremental')
+
+/** 触发文件选择（覆盖导入为破坏性操作，先弹确认） */
+function triggerImport(mode: 'incremental' | 'overwrite' = 'incremental') {
+  if (mode === 'overwrite') {
+    const ok = window.confirm(
+      '覆盖导入将先清空数据库全部行（归档），再重新导入 Excel 的全部数据，是否继续？',
+    )
+    if (!ok) return
+  }
+  importMode.value = mode
   fileInput.value?.click()
 }
 
 /** 处理 Excel 文件导入 */
-async function handleImport(file: File) {
+async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'incremental') {
   if (!database.value) return
 
   importDrawerOpen.value = true
@@ -733,22 +744,39 @@ async function handleImport(file: File) {
 
     // 4. 检测 Excel 是否有 id 列
     const idColumnKey = headers.find(h => h.toLowerCase() === 'id')
-    const existingIds = new Set<string>()
-    if (idColumnKey) {
-      for (const dbRow of database.value.rows) {
-        existingIds.add(dbRow.id.toLowerCase())
-      }
-    }
 
-    // 5. 构建已有 title 集合
+    // 5. 构建"已有数据"集合（增量模式），或先清空数据库（覆盖模式）
+    const existingIds = new Set<string>()
     const existingTitles = new Set<string>()
-    for (const row of database.value.rows) {
+
+    if (mode === 'overwrite') {
+      // 覆盖导入：先清空数据库全部行，再全量导入
+      log('🗑 覆盖导入模式：正在清空数据库全部行...')
+      const clearRes = await clearDatabase(props.block.id, apiKey)
+      if (!clearRes.ok) {
+        const detail = clearRes.errors?.map(e => `${e.pageId.slice(0, 8)}: ${e.error}`).join('；')
+        log(`❌ 清空数据库失败：${detail || clearRes.error || '未知错误'}，已中止导入`)
+        importing.value = false
+        return
+      }
+      log(`✅ 数据库已清空（归档 ${clearRes.archived ?? 0} / ${clearRes.total ?? 0} 行）`)
+    } else {
+      // 增量导入：按 id / title 去重，仅新增不存在的行
+      log('📥 增量导入模式：按 id / title 去重，仅新增不存在的行')
+      if (idColumnKey) {
+        for (const dbRow of database.value.rows) {
+          existingIds.add(dbRow.id.toLowerCase())
+        }
+      }
       const titleKey = schema.titleKey
-      if (!titleKey) continue
-      const val = row.properties[titleKey]
-      if (val?.type === 'title') {
-        const t = val.title?.map(t => t.plain_text).join('') ?? ''
-        if (t) existingTitles.add(t)
+      if (titleKey) {
+        for (const row of database.value.rows) {
+          const val = row.properties[titleKey]
+          if (val?.type === 'title') {
+            const t = val.title?.map(t => t.plain_text).join('') ?? ''
+            if (t) existingTitles.add(t)
+          }
+        }
       }
     }
 
@@ -1011,8 +1039,8 @@ async function handleImport(file: File) {
             v-if="showImport"
             class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
             style="background-color: var(--c-brand-light); color: var(--c-brand)"
-            title="从 Excel 导入数据"
-            @click.stop="triggerImport"
+            title="增量导入：按 id / title 去重，仅新增不存在的行"
+            @click.stop="triggerImport('incremental')"
           >
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -1022,7 +1050,24 @@ async function handleImport(file: File) {
                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
               />
             </svg>
-            <span>导入</span>
+            <span>增量导入</span>
+          </button>
+          <button
+            v-if="showImport"
+            class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
+            style="background-color: var(--c-brand-light); color: var(--c-brand)"
+            title="覆盖导入：先清空数据库全部行，再重新导入 Excel 全部数据"
+            @click.stop="triggerImport('overwrite')"
+          >
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 7v6a4 4 0 004 4h9M3 7V5a2 2 0 012-2h6l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2h-2M3 7h2m8 0h8m-9 3v6m0 0l-3-3m3 3l3-3"
+              />
+            </svg>
+            <span>覆盖导入</span>
           </button>
           <input
             ref="fileInput"
@@ -1032,7 +1077,7 @@ async function handleImport(file: File) {
             @change="
               (e: Event) => {
                 const f = (e.target as HTMLInputElement).files?.[0]
-                if (f) handleImport(f)
+                if (f) handleImport(f, importMode)
                 ;(e.target as HTMLInputElement).value = ''
               }
             "

@@ -43,9 +43,9 @@ npm install
 
 ### 依赖工具
 
-| 工具 | 用途 | 必须 |
-|------|------|------|
-| Notion Integration Token | 同步 & 导入页面 | 是 |
+| 工具                           | 用途                        | 必须                   |
+| ------------------------------ | --------------------------- | ---------------------- |
+| Notion Integration Token       | 同步 & 导入页面             | 是                     |
 | PicList (本地 127.0.0.1:36677) | Excel 导入 files 列图片上传 | 否（无图片列时不需要） |
 
 ## 项目结构
@@ -90,41 +90,42 @@ npm install
 
 ## 页面
 
-| 路由 | 页面 | 说明 |
-|------|------|------|
-| `/` | HomeView | 已同步根页面卡片列表，支持删除备份 |
-| `/sync` | SyncView | 批量同步，URL 自动解析页面 ID，日志面板 |
-| `/config` | ConfigView | Token/并发数/请求间隔/数据库导入开关 |
+| 路由              | 页面       | 说明                                          |
+| ----------------- | ---------- | --------------------------------------------- |
+| `/`               | HomeView   | 已同步根页面卡片列表，支持删除备份            |
+| `/sync`           | SyncView   | 批量同步，URL 自动解析页面 ID，日志面板       |
+| `/config`         | ConfigView | Token/并发数/请求间隔/数据库导入开关          |
 | `/reader/:pageId` | ReaderView | 分栏目录 + 封面/属性/子页面/反向链接/暗色模式 |
-| `/api-test` | TestView | Notion API 端点调试 |
+| `/api-test`       | TestView   | Notion API 端点调试                           |
 
 ## Vite 中间件端点
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/storage/index` | 全局索引（首页卡片） |
-| GET | `/api/storage/page/:rootPageId/:date/:pageId` | 读取页面 |
-| GET | `/api/storage/batch-index/:rootPageId/:date` | 批次索引 |
-| POST | `/api/storage/save` | 保存同步结果 |
-| GET | `/api/storage/database/:rootPageId/:date/:pageId/:db` | 读取数据库 |
-| GET | `/api/storage/backlinks/:rootPageId/:date/:pageId` | 反向链接 |
-| GET | `/api/storage/versions/:rootPageId` | 版本列表 |
-| DELETE | `/api/storage/remove/:rootPageId` | 删除根页面备份 |
-| DELETE | `/api/storage/cleanup/:rootPageId` | 清理旧版本 |
-| POST | `/api/storage/append-log` | 追加同步日志 |
-| GET | `/api/images/:rootPageId/:fileName` | 提供本地图片 |
-| POST | `/api/images/import` | 暂存导入图片 |
-| POST | `/api/db-import/create-page` | 创建数据库页面（绕 CORS） |
-| POST | `/api/notion/test-connection` | 测试 Notion 连接 |
-| POST | `/api/notion/fetch-page` | 获取页面数据 |
-| POST | `/api/notion/fetch-block-children` | 获取 block 子节点 |
-| POST | `/api/notion/fetch-database` | 查询数据库 |
-| POST | `/api/notion/fetch-database-schema` | 获取数据库 schema |
-| POST | `/api/notion/inspect-database` | 检查数据库详情 |
+| 方法   | 路径                                                  | 说明                      |
+| ------ | ----------------------------------------------------- | ------------------------- |
+| GET    | `/api/storage/index`                                  | 全局索引（首页卡片）      |
+| GET    | `/api/storage/page/:rootPageId/:date/:pageId`         | 读取页面                  |
+| GET    | `/api/storage/batch-index/:rootPageId/:date`          | 批次索引                  |
+| POST   | `/api/storage/save`                                   | 保存同步结果              |
+| GET    | `/api/storage/database/:rootPageId/:date/:pageId/:db` | 读取数据库                |
+| GET    | `/api/storage/backlinks/:rootPageId/:date/:pageId`    | 反向链接                  |
+| GET    | `/api/storage/versions/:rootPageId`                   | 版本列表                  |
+| DELETE | `/api/storage/remove/:rootPageId`                     | 删除根页面备份            |
+| DELETE | `/api/storage/cleanup/:rootPageId`                    | 清理旧版本                |
+| POST   | `/api/storage/append-log`                             | 追加同步日志              |
+| GET    | `/api/images/:rootPageId/:fileName`                   | 提供本地图片              |
+| POST   | `/api/images/import`                                  | 暂存导入图片              |
+| POST   | `/api/db-import/create-page`                          | 创建数据库页面（绕 CORS） |
+| POST   | `/api/notion/test-connection`                         | 测试 Notion 连接          |
+| POST   | `/api/notion/fetch-page`                              | 获取页面数据              |
+| POST   | `/api/notion/fetch-block-children`                    | 获取 block 子节点         |
+| POST   | `/api/notion/fetch-database`                          | 查询数据库                |
+| POST   | `/api/notion/fetch-database-schema`                   | 获取数据库 schema         |
+| POST   | `/api/notion/inspect-database`                        | 检查数据库详情            |
 
 ## 功能特性
 
 ### 同步
+
 - 输入 Notion URL 自动解析页面 ID
 - 批量同步，并发控制（默认 2，可配）
 - 递归同步子页面，嵌套 block 子内容完整拉取
@@ -132,6 +133,7 @@ npm install
 - 图片本地化存储，展示/导出使用本地路径
 
 ### 阅读
+
 - 分栏布局：左侧可调宽目录（TocTree） + 右侧内容
 - 目录点击滚动到对应标题，活跃标题高亮
 - 封面横幅 / 面包屑 / 属性面板 / 子页面预览 / 反向链接
@@ -139,8 +141,9 @@ npm install
 - 暗色模式：130+ CSS 变量驱动，`html.dark` 类切换
 
 ### 导出 & 导入
+
 - **导出 xlsx**：数据库表格一键导出，支持过滤后导出，图片嵌入单元格
-- **导入 xlsx**：Excel 数据导入到 Notion 数据库，按名称匹配列，title 列去重增量导入，files 列支持嵌入式图片（通过 PicList 上传到图床）
+- **导入 xlsx**：Excel 数据导入到 Notion 数据库，按名称匹配列，支持两种模式 —— **增量导入**（按 id/title 列去重，仅新增不存在的行）与 **覆盖导入**（先清空数据库全部行再全量导入）；files 列支持嵌入式图片（通过 PicList 上传到图床）
 
 ## 开发状态
 
