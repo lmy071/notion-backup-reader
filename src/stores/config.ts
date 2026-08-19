@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { reactive } from 'vue'
-// @ts-ignore
 import type { AppConfig } from '@/types'
 
 const STORAGE_KEY = 'notion-config'
