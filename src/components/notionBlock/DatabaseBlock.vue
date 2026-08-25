@@ -859,7 +859,7 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
         await delay(1000)
         let url: string | null = null
         for (let attempt = 1; attempt <= 5; attempt++) {
-          url = await uploadImageForImport(img)
+          url = await uploadImageForImport(img, titleValue)
           if (url) break
           if (attempt < 5) {
             log(`⚠ R${rn} "${titleValue}" ${col} 图片上传失败（第 ${attempt}/5 次），5s 后重试...`)

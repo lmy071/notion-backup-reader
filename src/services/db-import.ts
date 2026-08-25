@@ -770,12 +770,21 @@ export async function clearDatabase(
  * 返回公网 URL，失败时返回 null。
  * 前提：PicList 需后台运行，默认端口 36677。
  */
-export async function uploadImageForImport(image: BufferedImage): Promise<string | null> {
-  // 用时间戳生成唯一文件名，避免 Gitee 同名文件冲突
-  const uniqueId = Date.now()
+export async function uploadImageForImport(
+  image: BufferedImage,
+  title: string = '',
+): Promise<string | null> {
+  // 文件名 = 标题名 + 当前时间戳，避免 Gitee 同名文件冲突
+  const ts = Date.now()
+  const safeTitle =
+    title
+      .trim()
+      .replace(/[\\/:*?"<>|\s]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'import'
   const blob = new Blob([image.buffer], { type: image.mimeType })
   const form = new FormData()
-  form.append('file', blob, `import-${uniqueId}.${image.extension}`)
+  form.append('file', blob, `${safeTitle}_${ts}.${image.extension}`)
 
   try {
     const res = await fetch('http://127.0.0.1:36677/upload', {
