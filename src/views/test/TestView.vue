@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PixelCompanion from '@/components/common/PixelCompanion.vue'
 import { ref, computed } from 'vue'
 import { useConfigStore } from '@/stores/config'
 
@@ -114,11 +115,7 @@ const apiTree: ApiNode[] = [
     method: 'POST',
     path: '/api/notion/clear-database',
     description: '调用 Notion API 逐行 archive 清空数据库全部行',
-    defaultInput: JSON.stringify(
-      { databaseId: DEMO_DATABASE_ID },
-      null,
-      2,
-    ),
+    defaultInput: JSON.stringify({ databaseId: DEMO_DATABASE_ID }, null, 2),
   },
 ]
 
@@ -257,14 +254,17 @@ const resultJsonString = computed(() => {
 </script>
 
 <template>
-  <div class="flex h-full" style="background-color: var(--c-bg)">
+  <div class="test-layout flex h-full" style="background-color: var(--c-bg)">
     <!-- ── Left: API Tree ── -->
     <aside
-      class="w-240px shrink-0 overflow-y-auto border-r"
+      class="test-sidebar w-240px shrink-0 overflow-y-auto border-r"
       style="border-color: var(--c-border); background-color: var(--c-bg-secondary)"
     >
-      <div class="px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--c-text-tertiary)">
-        接口列表
+      <div
+        class="sidebar-heading px-4 py-3 text-xs font-semibold uppercase tracking-wider"
+        style="color: var(--c-text-tertiary)"
+      >
+        <span>接口列表</span><PixelCompanion class="sidebar-companion" />
       </div>
       <nav>
         <template v-for="node in apiTree" :key="node.id">
@@ -280,12 +280,14 @@ const resultJsonString = computed(() => {
               v-if="node.children"
               class="text-xs"
               style="color: var(--c-text-tertiary); width: 12px"
-            >{{ isChildOf(node.id) || node.id === selectedNodeId ? '▾' : '▸' }}</span>
+              >{{ isChildOf(node.id) || node.id === selectedNodeId ? '▾' : '▸' }}</span
+            >
             <span v-else class="w-12px" />
             <span
               class="text-10px font-mono px-1 rounded"
               style="color: #fff; background-color: var(--c-brand)"
-            >{{ node.method }}</span>
+              >{{ node.method }}</span
+            >
             <span>{{ node.label }}</span>
           </button>
 
@@ -297,7 +299,8 @@ const resultJsonString = computed(() => {
               class="w-full text-left pl-10 pr-4 py-1.5 text-xs transition-colors flex items-center gap-2"
               :style="{
                 color: selectedNodeId === child.id ? 'var(--c-brand)' : 'var(--c-text-tertiary)',
-                backgroundColor: selectedNodeId === child.id ? 'var(--c-brand-light)' : 'transparent',
+                backgroundColor:
+                  selectedNodeId === child.id ? 'var(--c-brand-light)' : 'transparent',
                 fontWeight: selectedNodeId === child.id ? 600 : 400,
               }"
               @click="selectNode(child)"
@@ -305,7 +308,8 @@ const resultJsonString = computed(() => {
               <span
                 class="text-10px font-mono px-1 rounded"
                 style="color: #fff; background-color: var(--c-brand)"
-              >{{ child.method }}</span>
+                >{{ child.method }}</span
+              >
               <span>{{ child.label }}</span>
             </button>
           </template>
@@ -314,15 +318,19 @@ const resultJsonString = computed(() => {
     </aside>
 
     <!-- ── Right: Input + Response ── -->
-    <div class="flex-1 flex flex-col overflow-hidden">
+    <div class="test-content flex-1 flex flex-col overflow-hidden">
       <!-- Header -->
       <div
         class="flex items-center justify-between px-4 py-2.5 shrink-0 border-b"
         style="border-color: var(--c-border); background-color: var(--c-bg-secondary)"
       >
         <div>
-          <h2 class="text-sm font-semibold" style="color: var(--c-text)">{{ selectedNode?.label || '选择接口' }}</h2>
-          <p class="text-xs mt-0.5" style="color: var(--c-text-tertiary)">{{ selectedNode?.description }}</p>
+          <h2 class="text-sm font-semibold" style="color: var(--c-text)">
+            {{ selectedNode?.label || '选择接口' }}
+          </h2>
+          <p class="text-xs mt-0.5" style="color: var(--c-text-tertiary)">
+            {{ selectedNode?.description }}
+          </p>
         </div>
         <button
           v-if="isLeaf"
@@ -335,16 +343,17 @@ const resultJsonString = computed(() => {
         </button>
       </div>
 
-      <div class="flex-1 flex flex-col overflow-hidden" v-if="isLeaf">
+      <div v-if="isLeaf" class="flex-1 flex flex-col overflow-hidden">
         <!-- Input -->
         <div class="px-4 pt-3 pb-1 shrink-0">
           <div class="flex items-center justify-between mb-1">
-            <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--c-text-tertiary)">
+            <span
+              class="text-xs font-semibold uppercase tracking-wider"
+              style="color: var(--c-text-tertiary)"
+            >
               请求参数 (JSON)
             </span>
-            <span class="text-10px" style="color: var(--c-text-tertiary)">
-              Ctrl+Enter 发送
-            </span>
+            <span class="text-10px" style="color: var(--c-text-tertiary)"> Ctrl+Enter 发送 </span>
           </div>
         </div>
         <div class="px-4 pb-3 shrink-0" style="max-height: 160px">
@@ -364,15 +373,24 @@ const resultJsonString = computed(() => {
         <!-- Response -->
         <div class="px-4 pt-2 pb-1 shrink-0">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--c-text-tertiary)">
+            <span
+              class="text-xs font-semibold uppercase tracking-wider"
+              style="color: var(--c-text-tertiary)"
+            >
               响应结果
             </span>
             <span
               v-if="responseStatus !== null"
               class="text-xs font-mono px-1.5 py-0.5 rounded"
               :style="{
-                backgroundColor: responseStatus >= 200 && responseStatus < 300 ? 'var(--c-success-bg)' : 'var(--c-danger-bg)',
-                color: responseStatus >= 200 && responseStatus < 300 ? 'var(--c-success)' : 'var(--c-danger)',
+                backgroundColor:
+                  responseStatus >= 200 && responseStatus < 300
+                    ? 'var(--c-success-bg)'
+                    : 'var(--c-danger-bg)',
+                color:
+                  responseStatus >= 200 && responseStatus < 300
+                    ? 'var(--c-success)'
+                    : 'var(--c-danger)',
               }"
             >
               {{ responseStatus }}
@@ -381,7 +399,11 @@ const resultJsonString = computed(() => {
         </div>
         <div class="flex-1 px-4 pb-4 overflow-hidden">
           <!-- Loading -->
-          <div v-if="loading" class="flex items-center justify-center h-full" style="color: var(--c-text-tertiary)">
+          <div
+            v-if="loading"
+            class="flex items-center justify-center h-full"
+            style="color: var(--c-text-tertiary)"
+          >
             <div class="text-sm">请求中...</div>
           </div>
 
@@ -389,7 +411,11 @@ const resultJsonString = computed(() => {
           <div
             v-else-if="error"
             class="h-full rounded border p-4 font-mono text-xs overflow-auto"
-            style="color: var(--c-danger); border-color: var(--c-danger); background-color: var(--c-danger-bg)"
+            style="
+              color: var(--c-danger);
+              border-color: var(--c-danger);
+              background-color: var(--c-danger-bg);
+            "
           >
             {{ error }}
           </div>
@@ -410,8 +436,12 @@ const resultJsonString = computed(() => {
           <pre
             v-else-if="resultJsonString"
             class="h-full rounded border p-4 font-mono text-xs overflow-auto m-0"
-            style="color: var(--c-text); border-color: var(--c-border); background-color: var(--c-bg-secondary)"
-          >{{ resultJsonString }}</pre>
+            style="
+              color: var(--c-text);
+              border-color: var(--c-border);
+              background-color: var(--c-bg-secondary);
+            "
+            >{{ resultJsonString }}</pre>
         </div>
       </div>
 

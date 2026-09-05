@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PixelCompanion from '@/components/common/PixelCompanion.vue'
 import { ref, watch, nextTick } from 'vue'
 import { useSyncLogic } from './useSyncLogic'
 
@@ -34,42 +35,79 @@ watch(
 </script>
 
 <template>
-  <div class="max-w-1400px mx-auto px-4 py-8">
-    <h1 class="text-2xl font-bold mb-6" style="color: var(--c-text-primary)">批量同步</h1>
+  <div class="notebook-page mx-auto">
+    <header class="page-heading">
+      <div>
+        <span class="page-kicker">02 / SYNC WORKSPACE</span>
+        <h1 style="color: var(--c-text-primary)">批量同步</h1>
+      </div>
+      <PixelCompanion class="heading-companion" />
+    </header>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <!-- 左侧：输入与历史 -->
       <div class="flex flex-col gap-6">
         <!-- ID 输入区 -->
-        <section class="p-5 rounded-lg" style="background-color: var(--c-card-bg); border: 1px solid var(--c-card-border); box-shadow: var(--c-shadow)">
-          <label class="block text-sm font-medium mb-1" style="color: var(--c-text-secondary)" for="sync-ids">
+        <section
+          class="paper-panel p-5"
+          style="
+            background-color: var(--c-card-bg);
+            border: 1px solid var(--c-card-border);
+            box-shadow: var(--c-shadow);
+          "
+        >
+          <label
+            class="block text-sm font-medium mb-1"
+            style="color: var(--c-text-secondary)"
+            for="sync-ids"
+          >
             页面 ID（每行一个，或逗号分隔）
           </label>
           <textarea
             id="sync-ids"
             v-model="inputText"
             class="w-full p-3 rounded-md border font-mono text-sm resize-y"
-            style="min-height: 120px; background-color: var(--c-bg); border-color: var(--c-border); color: var(--c-text)"
+            style="
+              min-height: 120px;
+              background-color: var(--c-bg);
+              border-color: var(--c-border);
+              color: var(--c-text);
+            "
             placeholder="输入 Notion 页面 ID 或链接，每行一个或用逗号分隔&#10;例如：&#10;https://app.notion.com/p/abc123def456?source=copy_link"
             :disabled="isSyncing"
           />
         </section>
 
         <!-- 已同步历史 -->
-        <section class="p-5 rounded-lg" style="background-color: var(--c-card-bg); border: 1px solid var(--c-card-border); box-shadow: var(--c-shadow)">
+        <section
+          class="paper-panel p-5"
+          style="
+            background-color: var(--c-card-bg);
+            border: 1px solid var(--c-card-border);
+            box-shadow: var(--c-shadow);
+          "
+        >
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-lg font-semibold" style="color: var(--c-text-primary)">已同步页面</h2>
             <div v-if="historyList.length > 0" class="flex gap-2">
               <button
                 class="px-2 py-1 rounded text-xs font-medium cursor-pointer"
-                style="background-color: var(--c-bg-secondary); color: var(--c-text-secondary); border: 1px solid var(--c-border)"
+                style="
+                  background-color: var(--c-bg-secondary);
+                  color: var(--c-text-secondary);
+                  border: 1px solid var(--c-border);
+                "
                 @click="selectAllHistory"
               >
                 全选
               </button>
               <button
                 class="px-2 py-1 rounded text-xs font-medium cursor-pointer"
-                style="background-color: var(--c-bg-secondary); color: var(--c-text-secondary); border: 1px solid var(--c-border)"
+                style="
+                  background-color: var(--c-bg-secondary);
+                  color: var(--c-text-secondary);
+                  border: 1px solid var(--c-border);
+                "
                 @click="clearSelection"
               >
                 取消
@@ -77,7 +115,11 @@ watch(
             </div>
           </div>
 
-          <div v-if="historyList.length === 0" class="text-sm py-4 text-center" style="color: var(--c-text-secondary)">
+          <div
+            v-if="historyList.length === 0"
+            class="text-sm py-4 text-center"
+            style="color: var(--c-text-secondary)"
+          >
             暂无同步历史
           </div>
 
@@ -104,7 +146,7 @@ watch(
         </section>
 
         <!-- 操作按钮 -->
-        <div class="flex items-center gap-3">
+        <div class="config-actions flex items-center gap-3">
           <button
             class="px-4 py-2 rounded-md font-medium cursor-pointer text-white transition-colors"
             :style="{
@@ -123,11 +165,18 @@ watch(
       </div>
 
       <!-- 右侧：日志区 -->
-      <section class="p-5 rounded-lg" style="background-color: var(--c-card-bg); border: 1px solid var(--c-card-border); box-shadow: var(--c-shadow)">
+      <section
+        class="paper-panel p-5"
+        style="
+          background-color: var(--c-card-bg);
+          border: 1px solid var(--c-card-border);
+          box-shadow: var(--c-shadow);
+        "
+      >
         <h2 class="text-lg font-semibold mb-4" style="color: var(--c-text-primary)">同步日志</h2>
         <div
           ref="logContainer"
-          class="rounded p-3 overflow-y-auto font-mono text-xs leading-relaxed"
+          class="log-paper p-3 overflow-y-auto font-mono text-sm leading-relaxed"
           style="height: 400px; background-color: var(--c-bg-secondary); color: var(--c-text)"
           @mouseenter="paused = true"
           @mouseleave="paused = false"
@@ -135,12 +184,22 @@ watch(
           <div v-if="logMessages.length === 0" style="color: var(--c-text-secondary)">
             暂无日志，点击「开始同步」后显示
           </div>
-          <div
-            v-for="(msg, i) in logMessages"
-            :key="i"
-            class="whitespace-pre-wrap break-all"
-          >
+          <div v-for="(msg, i) in logMessages" :key="i" class="whitespace-pre-wrap break-all">
             {{ msg }}
+          </div>
+        </div>
+        <div
+          v-if="isSyncing"
+          class="sync-meter"
+          role="progressbar"
+          aria-label="同步进度"
+          :aria-valuenow="overallProgress"
+          :aria-valuemin="0"
+          :aria-valuemax="100"
+        >
+          <span class="sync-meter-label">正在同步 · {{ overallProgress }}%</span>
+          <div class="sync-meter-track">
+            <div class="sync-meter-fill" :style="{ width: `${overallProgress}%` }" />
           </div>
         </div>
       </section>

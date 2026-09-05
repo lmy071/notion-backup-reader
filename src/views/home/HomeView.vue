@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PixelCompanion from '@/components/common/PixelCompanion.vue'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useHomeLogic } from './useHomeLogic'
@@ -30,12 +31,20 @@ async function handleDelete(rootPageId: string, title: string) {
 </script>
 
 <template>
-  <div class="max-w-1400px mx-auto px-4 py-8">
-    <header class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold" style="color: var(--c-text-primary)">已备份页面</h1>
-      <span class="text-sm" style="color: var(--c-text-secondary)">
-        {{ roots.length }} 个备份
-      </span>
+  <div class="notebook-page mx-auto">
+    <header class="page-heading">
+      <div>
+        <span class="page-kicker">01 / MY COLLECTION</span>
+        <h1 style="color: var(--c-text-primary)">已备份页面</h1>
+      </div>
+      <div class="heading-accessory">
+        <PixelCompanion class="heading-companion" animated /><span
+          class="count-badge text-sm"
+          style="color: var(--c-text-secondary)"
+        >
+          {{ roots.length }} 个备份
+        </span>
+      </div>
     </header>
 
     <!-- 加载状态 -->
@@ -52,10 +61,10 @@ async function handleDelete(rootPageId: string, title: string) {
     <!-- 空状态 -->
     <div
       v-else-if="roots.length === 0"
-      class="flex flex-col items-center justify-center py-20"
+      class="empty-notebook flex flex-col items-center justify-center py-20"
       style="color: var(--c-text-secondary)"
     >
-      <div class="text-5xl mb-4">📭</div>
+      <PixelCompanion class="empty-companion" />
       <p class="text-lg mb-2">暂无备份页面</p>
       <p class="text-sm">
         前往
@@ -68,11 +77,7 @@ async function handleDelete(rootPageId: string, title: string) {
 
     <!-- 按根页分组，每组只展示根页面主卡片 -->
     <template v-else>
-      <section
-        v-for="root in roots"
-        :key="root.rootPageId"
-        class="mb-8"
-      >
+      <section v-for="root in roots" :key="root.rootPageId" class="mb-8">
         <!-- 组头部 -->
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-2 text-sm" style="color: var(--c-text-secondary)">
@@ -95,14 +100,12 @@ async function handleDelete(rootPageId: string, title: string) {
                 }"
                 @change="selectDate(root.rootPageId, ($event.target as HTMLSelectElement).value)"
               >
-                <option
-                  v-for="d in root.availableDates"
-                  :key="d"
-                  :value="d"
-                >{{ d }}</option>
+                <option v-for="d in root.availableDates" :key="d" :value="d">{{ d }}</option>
               </select>
             </div>
-            <span v-else class="text-xs" style="color: var(--c-text-tertiary)">{{ root.selectedDate }}</span>
+            <span v-else class="text-xs" style="color: var(--c-text-tertiary)">{{
+              root.selectedDate
+            }}</span>
 
             <!-- 删除按钮 -->
             <button
@@ -110,7 +113,10 @@ async function handleDelete(rootPageId: string, title: string) {
               :style="{
                 color: confirmId === root.rootPageId ? 'var(--c-bg)' : 'var(--c-text-tertiary)',
                 backgroundColor: confirmId === root.rootPageId ? 'var(--c-danger)' : 'transparent',
-                border: confirmId === root.rootPageId ? '1px solid var(--c-danger)' : '1px solid var(--c-border)',
+                border:
+                  confirmId === root.rootPageId
+                    ? '1px solid var(--c-danger)'
+                    : '1px solid var(--c-border)',
               }"
               @click="handleDelete(root.rootPageId, root.title)"
             >

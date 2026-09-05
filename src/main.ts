@@ -4,6 +4,7 @@ import router from '@/router'
 import App from './App.vue'
 import 'virtual:uno.css'
 import './assets/styles/global.css'
+import './assets/styles/anime.css'
 
 const app = createApp(App)
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PixelCompanion from '@/components/common/PixelCompanion.vue'
 import { provide, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useReaderLogic } from './useReaderLogic'
@@ -83,19 +84,24 @@ function isSystemProperty(key: string): boolean {
 </script>
 
 <template>
-  <div class="flex h-full">
+  <div class="reader-layout flex h-full">
     <!-- 侧边栏 -->
     <ResizablePanel
+      class="reader-sidebar"
       :width="sidebarWidth"
       :min-width="200"
       :max-width="500"
       @update:width="sidebarWidth = $event"
     >
-      <div class="h-full flex flex-col glass" style="border-right: none; border-radius: 0;">
-        <div class="px-4 py-3" style="border-bottom: 1px solid var(--c-border)">
-          <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--c-text-secondary)">
+      <div class="h-full flex flex-col glass" style="border-right: none; border-radius: 0">
+        <div class="sidebar-heading px-4 py-3" style="border-bottom: 1px solid var(--c-border)">
+          <h2
+            class="text-sm font-semibold uppercase tracking-wider"
+            style="color: var(--c-text-secondary)"
+          >
             目录
           </h2>
+          <PixelCompanion class="sidebar-companion" />
         </div>
         <div class="flex-1 overflow-y-auto px-3 py-2">
           <TocTree :headings="headings" />
@@ -103,8 +109,11 @@ function isSystemProperty(key: string): boolean {
 
         <!-- 子页面列表 -->
         <div v-if="subPages.length > 0" style="border-top: 1px solid var(--c-border)">
-          <div class="px-4 py-3" style="border-bottom: 1px solid var(--c-border)">
-            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--c-text-secondary)">
+          <div class="sidebar-heading px-4 py-3" style="border-bottom: 1px solid var(--c-border)">
+            <h2
+              class="text-sm font-semibold uppercase tracking-wider"
+              style="color: var(--c-text-secondary)"
+            >
               子页面 ({{ subPages.length }})
             </h2>
           </div>
@@ -125,7 +134,7 @@ function isSystemProperty(key: string): boolean {
     </ResizablePanel>
 
     <!-- 主内容区 -->
-    <div class="flex-1 overflow-y-auto">
+    <div class="reader-content flex-1 overflow-y-auto">
       <!-- 加载状态 -->
       <div v-if="loading" class="flex items-center justify-center h-full">
         <div class="flex flex-col items-center gap-3" style="color: var(--c-text-secondary)">
@@ -145,7 +154,9 @@ function isSystemProperty(key: string): boolean {
           class="px-4 py-2 rounded-md font-medium cursor-pointer text-white"
           style="background-color: var(--c-brand)"
           @click="loadPage"
-        >重试</button>
+        >
+          重试
+        </button>
       </div>
 
       <!-- 页面内容 -->
@@ -156,16 +167,15 @@ function isSystemProperty(key: string): boolean {
           class="w-full overflow-hidden"
           style="height: 200px; background-color: var(--c-bg-secondary)"
         >
-          <img
-            :src="page.cover.url"
-            :alt="page.title"
-            class="w-full h-full object-cover"
-          />
+          <img :src="page.cover.url" :alt="page.title" class="w-full h-full object-cover" />
         </div>
 
-        <div class="max-w-4xl mx-auto px-8 py-6">
+        <div class="reader-paper max-w-4xl mx-auto px-8 py-6">
           <!-- 面包屑 -->
-          <div class="flex items-center gap-2 mb-6 text-xs" style="color: var(--c-text-tertiary)">
+          <div
+            class="reader-breadcrumb flex items-center gap-2 mb-6 text-xs"
+            style="color: var(--c-text-tertiary)"
+          >
             <span>{{ rootPageId }}</span>
             <span>/</span>
             <span style="color: var(--c-text)">{{ page.title }}</span>
@@ -174,7 +184,9 @@ function isSystemProperty(key: string): boolean {
           <!-- 标题行：图标 + 标题 -->
           <header class="mb-6">
             <div class="flex items-start gap-4">
-              <span v-if="page.icon" class="text-4xl leading-none shrink-0 mt-1">{{ page.icon }}</span>
+              <span v-if="page.icon" class="text-4xl leading-none shrink-0 mt-1">{{
+                page.icon
+              }}</span>
               <h1 class="text-3xl font-bold leading-tight" style="color: var(--c-text-primary)">
                 {{ page.title || '无标题' }}
               </h1>
@@ -182,14 +194,19 @@ function isSystemProperty(key: string): boolean {
           </header>
 
           <!-- Notion 属性面板 -->
-          <div v-if="page.properties && Object.keys(page.properties).filter(k => !isSystemProperty(k)).length > 0" class="mb-8">
-            <div
-              v-for="(_val, key) in page.properties"
-              :key="key"
-            >
+          <div
+            v-if="
+              page.properties &&
+              Object.keys(page.properties).filter(k => !isSystemProperty(k)).length > 0
+            "
+            class="mb-8"
+          >
+            <div v-for="(_val, key) in page.properties" :key="key">
               <template v-if="!isSystemProperty(key)">
                 <div class="flex py-2 text-sm" style="border-bottom: 1px solid var(--c-border)">
-                  <div class="w-32 shrink-0 font-medium" style="color: var(--c-text-secondary)">{{ key }}</div>
+                  <div class="w-32 shrink-0 font-medium" style="color: var(--c-text-secondary)">
+                    {{ key }}
+                  </div>
                   <div style="color: var(--c-text)">{{ formatPropertyValue(_val) }}</div>
                 </div>
               </template>
@@ -200,7 +217,11 @@ function isSystemProperty(key: string): boolean {
           <NotionRenderer :blocks="page.blocks" />
 
           <!-- 反向链接 -->
-          <div v-if="backlinks.length > 0" class="mt-12 pt-8" style="border-top: 2px solid var(--c-border)">
+          <div
+            v-if="backlinks.length > 0"
+            class="mt-12 pt-8"
+            style="border-top: 2px solid var(--c-border)"
+          >
             <h2 class="text-lg font-bold mb-4" style="color: var(--c-text-primary)">
               反向链接 ({{ backlinks.length }})
             </h2>
