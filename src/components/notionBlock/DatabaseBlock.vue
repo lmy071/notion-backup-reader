@@ -14,6 +14,7 @@ import { parseBlock } from '../../../notion-parser/index'
 import { useConfigStore } from '@/stores/config'
 import { useImageViewer } from '@/composables/useImageViewer'
 import NotionRenderer from './NotionRenderer.vue'
+import TablePagination from '@/components/common/TablePagination.vue'
 import {
   parseExcelFile,
   buildDbSchema,
@@ -82,6 +83,8 @@ watch(importDrawerOpen, open => {
 
 // Filters
 const filterText = ref('')
+const tablePage = ref(1)
+const tablePageSize = 10
 
 // ── 导出配置对话框 ──
 const showExportDialog = ref(false)
@@ -150,6 +153,15 @@ const filteredRows = computed<NotionDatabaseRow[]>(() => {
 const filterResultCount = computed(() => {
   if (!database.value) return 0
   return filteredRows.value.length
+})
+
+const paginatedRows = computed(() => {
+  const start = (tablePage.value - 1) * tablePageSize
+  return filteredRows.value.slice(start, start + tablePageSize)
+})
+
+watch([filterText, () => database.value?.rows], () => {
+  tablePage.value = 1
 })
 
 function clearFilter() {
@@ -992,10 +1004,10 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
     </div>
 
     <!-- Database table -->
-    <div v-else class="overflow-x-auto rounded-lg" style="border: 1px solid var(--c-table-border)">
+    <div v-else class="overflow-hidden rounded-lg" style="border: 1px solid var(--c-table-border)">
       <!-- Database title bar -->
       <div
-        class="flex items-center justify-between px-4 py-2"
+        class="flex flex-wrap items-center justify-between gap-2 px-4 py-2"
         style="
           background-color: var(--c-table-header-bg);
           border-bottom: 1px solid var(--c-table-border);
@@ -1011,7 +1023,7 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
         <span v-else class="shrink-0" />
 
         <!-- Filter input -->
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <!-- Export xlsx -->
           <button
             class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer"
@@ -1114,14 +1126,14 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
         </div>
       </div>
 
-      <div class="overflow-x-auto" style="max-height: 480px; overflow-y: auto">
-        <table class="w-full border-collapse min-w-max">
-          <thead class="sticky top-0 z-10">
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-max border-collapse">
+          <thead>
             <tr style="background-color: var(--c-table-header-bg)">
               <th
                 v-for="col in getColumnNames()"
                 :key="col.key"
-                class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider whitespace-nowrap"
+                class="break-words px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider"
                 style="
                   color: var(--c-text-secondary);
                   border-bottom: 2px solid var(--c-table-border);
@@ -1133,7 +1145,7 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
           </thead>
           <tbody>
             <tr
-              v-for="(row, rowIdx) in filteredRows"
+              v-for="(row, rowIdx) in paginatedRows"
               :key="row.id"
               class="cursor-pointer transition-colors"
               :style="{
@@ -1145,12 +1157,12 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
               <td
                 v-for="col in getColumnNames()"
                 :key="col.key"
-                class="px-4 py-2 text-sm whitespace-nowrap"
+                class="break-words px-4 py-2 text-sm"
                 style="color: var(--c-text)"
               >
                 <!-- files type: show thumbnails -->
                 <template v-if="getColumnType(col.key) === 'files'">
-                  <div class="flex items-center gap-1.5">
+                  <div class="flex flex-wrap items-center gap-1.5">
                     <div
                       v-for="(f, fi) in getFilesList(row.properties[col.key])"
                       :key="fi"
@@ -1199,6 +1211,11 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
           </tbody>
         </table>
       </div>
+      <TablePagination
+        v-model:page="tablePage"
+        :total="filteredRows.length"
+        :page-size="tablePageSize"
+      />
     </div>
 
     <!-- Row detail drawer -->
