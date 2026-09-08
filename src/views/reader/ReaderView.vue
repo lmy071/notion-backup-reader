@@ -84,7 +84,7 @@ function isSystemProperty(key: string): boolean {
 </script>
 
 <template>
-  <div class="reader-layout flex h-full">
+  <div class="reader-layout flex">
     <!-- 侧边栏 -->
     <ResizablePanel
       class="reader-sidebar"
@@ -93,7 +93,7 @@ function isSystemProperty(key: string): boolean {
       :max-width="500"
       @update:width="sidebarWidth = $event"
     >
-      <div class="h-full flex flex-col glass" style="border-right: none; border-radius: 0">
+      <div class="flex flex-col glass" style="border-right: none; border-radius: 0">
         <div class="sidebar-heading px-4 py-3" style="border-bottom: 1px solid var(--c-border)">
           <h2
             class="text-sm font-semibold uppercase tracking-wider"
@@ -103,7 +103,7 @@ function isSystemProperty(key: string): boolean {
           </h2>
           <PixelCompanion class="sidebar-companion" />
         </div>
-        <div class="flex-1 overflow-y-auto px-3 py-2">
+        <div class="px-3 py-2">
           <TocTree :headings="headings" />
         </div>
 
@@ -117,7 +117,7 @@ function isSystemProperty(key: string): boolean {
               子页面 ({{ subPages.length }})
             </h2>
           </div>
-          <div class="overflow-y-auto px-2 py-2" style="max-height: 240px">
+          <div class="px-2 py-2">
             <div
               v-for="sp in subPages"
               :key="sp.pageId"
@@ -134,7 +134,7 @@ function isSystemProperty(key: string): boolean {
     </ResizablePanel>
 
     <!-- 主内容区 -->
-    <div class="reader-content flex-1 overflow-y-auto">
+    <div class="reader-content flex-1">
       <!-- 加载状态 -->
       <div v-if="loading" class="flex items-center justify-center h-full">
         <div class="flex flex-col items-center gap-3" style="color: var(--c-text-secondary)">
@@ -245,3 +245,25 @@ function isSystemProperty(key: string): boolean {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* The app-main viewport is the only vertical scroller for the reader. */
+.reader-layout {
+  height: auto;
+  min-height: 100%;
+  align-items: stretch;
+}
+.reader-sidebar {
+  height: auto;
+  max-height: none;
+}
+.reader-sidebar :deep(> div:first-child) {
+  overflow: visible;
+}
+.reader-content {
+  overflow: visible;
+}
+.reader-paper {
+  min-height: 0;
+}
+</style>

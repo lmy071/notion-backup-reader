@@ -8,6 +8,8 @@ import type {
   DatabasePropertyConfig,
   NotionPage,
 } from '@/types/notion'
+import TablePagination from '@/components/common/TablePagination.vue'
+import { usePagination } from '@/composables/usePagination'
 import { storage } from '@/services/storage'
 import { createMcpClient } from '@/services/mcp'
 import { parseBlock } from '../../../notion-parser/index'
@@ -146,6 +148,8 @@ const filteredRows = computed<NotionDatabaseRow[]>(() => {
     })
   })
 })
+
+const { page: tablePage, pageSize, pagedRows } = usePagination(filteredRows)
 
 const filterResultCount = computed(() => {
   if (!database.value) return 0
@@ -992,7 +996,7 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
     </div>
 
     <!-- Database table -->
-    <div v-else class="overflow-x-auto rounded-lg" style="border: 1px solid var(--c-table-border)">
+    <div v-else class="rounded-lg" style="border: 1px solid var(--c-table-border)">
       <!-- Database title bar -->
       <div
         class="flex items-center justify-between px-4 py-2"
@@ -1114,7 +1118,7 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
         </div>
       </div>
 
-      <div class="overflow-x-auto" style="max-height: 480px; overflow-y: auto">
+      <div class="overflow-x-auto">
         <table class="w-full border-collapse min-w-max">
           <thead class="sticky top-0 z-10">
             <tr style="background-color: var(--c-table-header-bg)">
@@ -1133,7 +1137,7 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
           </thead>
           <tbody>
             <tr
-              v-for="(row, rowIdx) in filteredRows"
+              v-for="(row, rowIdx) in pagedRows"
               :key="row.id"
               class="cursor-pointer transition-colors"
               :style="{
@@ -1161,7 +1165,7 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
                         borderColor: 'var(--c-border)',
                         cursor: isImageFile(f.name) ? 'zoom-in' : 'pointer',
                       }"
-                      @click="isImageFile(f.name) ? openImageViewer(f.url) : openUrl(f.url)"
+                      @click.stop="isImageFile(f.name) ? openImageViewer(f.url) : openUrl(f.url)"
                     >
                       <img
                         v-if="isImageFile(f.name)"
@@ -1199,6 +1203,11 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
           </tbody>
         </table>
       </div>
+      <TablePagination
+        v-model:page="tablePage"
+        v-model:page-size="pageSize"
+        :total="filteredRows.length"
+      />
     </div>
 
     <!-- Row detail drawer -->
@@ -1395,8 +1404,8 @@ async function handleImport(file: File, mode: 'incremental' | 'overwrite' = 'inc
     <!-- 日志内容 — 终�?�式 -->
     <div
       ref="logContainer"
-      class="rounded p-3 overflow-y-auto font-mono text-xs leading-relaxed"
-      style="height: 320px; background-color: var(--c-bg-secondary); color: var(--c-text)"
+      class="rounded p-3 font-mono text-xs leading-relaxed"
+      style="background-color: var(--c-bg-secondary); color: var(--c-text)"
       @mouseenter="logPaused = true"
       @mouseleave="logPaused = false"
     >
