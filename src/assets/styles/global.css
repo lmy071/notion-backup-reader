@@ -278,12 +278,14 @@ h1 {
 }
 .log-paper {
   border: 1px dashed var(--c-border);
+  line-height: 26px;
   background-image: repeating-linear-gradient(
     transparent,
     transparent 25px,
     var(--c-grid) 25px,
     var(--c-grid) 26px
   );
+  background-origin: content-box;
 }
 .config-paper {
   position: relative;
